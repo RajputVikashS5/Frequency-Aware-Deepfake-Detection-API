@@ -1,44 +1,23 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.so
-.venv/
-venv/
-.env
-.env.*
-
-# IDE / editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Data and artifacts
-data/raw/
-data/faces/
-data/metadata/
-checkpoints/
-experiments/
-*.pt
-*.pth
-*.ckpt
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Node / frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/.cache/
+node_modules
+dist
+dist-ssr
+*.local
 
-# Temporary and generated outputs
-*.tmp
-*.bak
-
-# Notebook outputs
-.ipynb_checkpoints/
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.env
