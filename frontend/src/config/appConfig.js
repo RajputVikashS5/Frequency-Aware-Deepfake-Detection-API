@@ -16,8 +16,8 @@ export const appConfig = {
 
   // File limits and validation rules
   maxFileSizeBytes: 10 * 1024 * 1024, // 10 Megabytes
-  allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-  allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'],
+  allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/bmp'],
+  allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp'],
 
   // Local storage keys
   storageKeys: {

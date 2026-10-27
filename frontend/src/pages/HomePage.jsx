@@ -21,10 +21,10 @@ export default function HomePage() {
         {/* Hero Section */}
         <section className="relative overflow-hidden rounded-2xl bg-card border border-border p-8 sm:p-12 shadow-xl">
           <div className="max-w-3xl space-y-6">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono font-medium bg-card-subtle text-accent-cyan border border-border-bright">
+            {/*<div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono font-medium bg-card-subtle text-accent-cyan border border-border-bright">
               <span className="w-1.5 h-1.5 rounded-full bg-accent-cyan" />
               <span>B.Tech CSE-AIML Academic Project</span>
-            </div>
+            </div> */}
 
             <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-100 tracking-tight leading-tight">
               Frequency-Aware Deepfake Detection &amp; Image Forensics

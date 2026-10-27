@@ -47,6 +47,7 @@ export const historyService = {
         confidencePct: analysisResult.confidencePct,
         scores: analysisResult.scores,
         isDemo: Boolean(analysisResult.isDemo),
+        isDiagnostic: Boolean(analysisResult.isDiagnostic),
         // Keep visualization thumbnails only if under safe size limit
         fftSpectrumUrl: analysisResult.visualizations?.fftSpectrumUrl || '',
         originalPreviewUrl:

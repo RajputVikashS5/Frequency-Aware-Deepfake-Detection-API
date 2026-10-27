@@ -95,8 +95,8 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        {/* DEMO NOTICE BANNER (Prominent when isDemo is true) */}
-        {analysis.isDemo && (
+        {/* DEMO/DIAGNOSTIC NOTICE BANNER */}
+        {(analysis.isDemo || analysis.isDiagnostic) && (
           <div className="bg-amber-950/30 border border-amber-800/60 rounded-xl p-4 flex items-start space-x-3 text-xs text-amber-300">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
@@ -104,43 +104,47 @@ export default function ResultsPage() {
                 {analysis.disclaimer}
               </span>
               <p className="text-amber-200/80 leading-relaxed text-[11px]">
-                This result was produced by the client-side demonstration service for prototype workflow validation. Actual model inference weights will be integrated in Phase 3.
+                {analysis.isDiagnostic
+                  ? analysis.diagnosticMessage
+                  : 'This result was produced by the client-side demonstration service for prototype workflow validation. It is not a validated model prediction.'}
               </p>
             </div>
           </div>
         )}
 
-        {/* Executive Verdict Card */}
+        {/* Classification card is shown only for explicitly labelled demo data. */}
         <div
           className={`rounded-2xl border p-6 sm:p-8 shadow-xl transition-colors ${
-            analysis.isManipulated
-              ? 'bg-red-950/20 border-red-900/60 shadow-red-950/20'
-              : 'bg-emerald-950/20 border-emerald-900/60 shadow-emerald-950/20'
+            analysis.isDiagnostic
+              ? 'bg-slate-900/40 border-amber-800/60'
+              : analysis.isManipulated
+                ? 'bg-red-950/20 border-red-900/60 shadow-red-950/20'
+                : 'bg-emerald-950/20 border-emerald-900/60 shadow-emerald-950/20'
           }`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/40 pb-5">
             <div className="space-y-2">
               <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
-                Forensic Classification Verdict
+              {analysis.isDiagnostic ? 'Diagnostic Status' : 'Forensic Classification Verdict'}
               </span>
               <div className="flex items-center space-x-3">
-                <PredictionBadge isManipulated={analysis.isManipulated} size="large" />
-                <span className="text-xs text-slate-400 font-mono">
-                  ID: {analysis.id}
-                </span>
+                {analysis.isDiagnostic ? (
+                  <span className="inline-flex items-center rounded-md border border-amber-800/70 bg-amber-950/30 px-3.5 py-1.5 text-sm font-semibold text-amber-300">
+                    Diagnostics only
+                  </span>
+                ) : (
+                  <PredictionBadge isManipulated={analysis.isManipulated} size="large" />
+                )}
+                  <span className="text-xs text-slate-400 font-mono">ID: {analysis.id}</span>
               </div>
             </div>
 
             <div className="text-left sm:text-right">
               <span className="text-[11px] text-slate-400 block font-mono">
-                Multimodal Calibrated Confidence
+                {analysis.isDiagnostic ? 'Classifier prediction' : 'Multimodal Calibrated Confidence'}
               </span>
-              <span
-                className={`text-3xl sm:text-4xl font-extrabold font-mono ${
-                  analysis.isManipulated ? 'text-red-400' : 'text-emerald-400'
-                }`}
-              >
-                {analysis.confidencePct.toFixed(1)}%
+              <span className="text-xl sm:text-2xl font-extrabold font-mono text-amber-300">
+                {analysis.isDiagnostic ? 'Unavailable' : `${analysis.confidencePct.toFixed(1)}%`}
               </span>
             </div>
           </div>
@@ -159,8 +163,8 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        {/* Feature Family Scores (RGB vs FFT vs Fusion) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Feature scores are not classification scores. */}
+        {!analysis.isDiagnostic && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <ScoreCard
             title="Spatial RGB Branch"
             score={analysis.scores?.rgbBranch}
@@ -179,7 +183,7 @@ export default function ResultsPage() {
             accent="violet"
             description="Audits high-frequency noise distribution in diagonal (HH) subband."
           />
-        </div>
+        </div>}
 
         {/* Multi-Modal Forensic Visualizations Grid */}
         <div className="space-y-4">

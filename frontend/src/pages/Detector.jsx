@@ -47,7 +47,7 @@ export default function Detector() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:8000/predict', {
+      const response = await fetch('http://localhost:8000/api/v1/analyze', {
         method: 'POST',
         body: formData,
       });
@@ -187,32 +187,25 @@ export default function Detector() {
       {results && !isProcessing && (
         <div className="space-y-6">
           {/* High-contrast Verdict banner */}
-          <div
-            className={`rounded-lg border p-6 ${
-              results.is_fake
-                ? 'bg-red-50/80 border-red-300 text-red-950'
-                : 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
-            }`}
-          >
+          <div className="rounded-lg border border-amber-300 bg-amber-50/80 p-6 text-amber-950">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-4 mb-4 border-current/15">
               <div>
                 <span className="text-xs uppercase font-mono font-bold tracking-wider opacity-75">
-                  Inspection Verdict
+                  Diagnostic Status — Not a Model Prediction
                 </span>
                 <h2 className="text-2xl font-bold tracking-tight">
-                  {results.verdict}
+                  {results.status === 'diagnostic_complete' ? 'Diagnostic inspection complete' : 'Unavailable'}
                 </h2>
               </div>
               <div className="text-left sm:text-right">
-                <span className="text-xs opacity-75 block">Calibrated Confidence</span>
-                <span className="text-3xl font-extrabold font-mono">
-                  {results.confidence_pct}%
-                </span>
+                <span className="text-xs opacity-75 block">Classifier prediction</span>
+                <span className="text-xl font-extrabold font-mono">Unavailable</span>
               </div>
             </div>
 
             {/* Findings list */}
             <div className="space-y-1.5 text-xs">
+              <p className="font-semibold">{results.message}</p>
               <span className="font-semibold block opacity-90">Analysis Summary:</span>
               <ul className="list-disc list-inside space-y-1 pl-1">
                 {results.findings.map((f, i) => (
@@ -291,53 +284,15 @@ export default function Detector() {
             </div>
           </div>
 
-          {/* Scores Breakdown & Image Metadata */}
+          {/* Diagnostic note & Image Metadata */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Scores Table */}
+            {/* No classification scores are exposed before Phase B. */}
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 space-y-3">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-                Feature Family Suspicion Scores
-              </h3>
-              <div className="space-y-3 text-xs">
-                <div>
-                  <div className="flex justify-between font-medium text-slate-700 mb-1">
-                    <span>Spatial Stream (Error Level & Edges)</span>
-                    <span className="font-mono font-bold text-slate-900">{results.scores.spatial_rgb}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded h-2">
-                    <div
-                      className="bg-slate-700 h-2 rounded"
-                      style={{ width: `${results.scores.spatial_rgb}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between font-medium text-slate-700 mb-1">
-                    <span>Fourier Frequency Stream (2D FFT Anomaly)</span>
-                    <span className="font-mono font-bold text-slate-900">{results.scores.frequency_fft}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded h-2">
-                    <div
-                      className="bg-slate-700 h-2 rounded"
-                      style={{ width: `${results.scores.frequency_fft}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between font-medium text-slate-700 mb-1">
-                    <span>Wavelet Stream (Haar DWT Energy)</span>
-                    <span className="font-mono font-bold text-slate-900">{results.scores.wavelet_dwt}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded h-2">
-                    <div
-                      className="bg-slate-700 h-2 rounded"
-                      style={{ width: `${results.scores.wavelet_dwt}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Classifier Status</h3>
+              <p className="text-xs leading-relaxed text-slate-600">
+                This response contains diagnostic visualizations only. No real/fake verdict,
+                confidence, calibrated probability, or trained model score is available.
+              </p>
             </div>
 
             {/* Technical Metadata */}
@@ -380,7 +335,7 @@ export default function Detector() {
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-600 leading-relaxed space-y-1">
             <span className="font-semibold text-slate-800 block">Methodological Note & Responsible Use:</span>
             <p>
-              Deepfake detection is experimental. A high or low confidence score is not definitive proof of authenticity or manipulation. Frequency-domain artifacts vary depending on the generation pipeline, compression rate, and resolution scaling. Forensic conclusions should be corroborated across multiple independent signals.
+              This diagnostic output is not a deepfake classification. Frequency-domain artifacts vary depending on the generation pipeline, compression rate, and resolution scaling. A trained and calibrated model will be evaluated only in a later phase.
             </p>
           </div>
         </div>

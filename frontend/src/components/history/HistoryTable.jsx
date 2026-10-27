@@ -62,12 +62,16 @@ export default function HistoryTable({ records, onDeleteItem }) {
 
                 {/* Verdict */}
                 <td className="py-3 px-4">
-                  <PredictionBadge isManipulated={item.isManipulated} />
+                  {item.isDiagnostic ? (
+                    <span className="text-xs font-mono text-amber-300">Diagnostics only</span>
+                  ) : (
+                    <PredictionBadge isManipulated={item.isManipulated} />
+                  )}
                 </td>
 
                 {/* Confidence */}
                 <td className="py-3 px-4 font-mono font-bold text-slate-200">
-                  {Number(item.confidencePct || 0).toFixed(1)}%
+                  {item.isDiagnostic ? 'N/A' : `${Number(item.confidencePct || 0).toFixed(1)}%`}
                 </td>
 
                 {/* Actions */}

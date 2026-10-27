@@ -24,28 +24,24 @@ export const analysisService = {
       formData.append('file', file);
 
       try {
-        const response = await apiClient.post('/predict', formData, {
+        const response = await apiClient.post('/api/v1/analyze', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
         const raw = response.data;
-        // Map backend response into standard frontend schema
+        // Diagnostics are deliberately not mapped into classification fields.
         result = {
           id: `srv-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           timestamp: new Date().toISOString(),
-          processingTimeMs: 1150,
+          processingTimeMs: null,
           isDemo: false,
-          disclaimer: 'Validated Model Inference Output',
-          verdict: raw.is_fake ? 'Likely Manipulated' : 'Likely Real',
-          isManipulated: Boolean(raw.is_fake),
-          confidencePct: Number(raw.confidence_pct || 50),
-          scoreType: 'Multimodal Fusion Model Score',
-          scores: {
-            rgbBranch: Number(raw.scores?.spatial_rgb || 50),
-            fftBranch: Number(raw.scores?.frequency_fft || 50),
-            dwtBranch: Number(raw.scores?.wavelet_dwt || 50),
-            fusedModel: Number(raw.confidence_pct || 50),
-          },
+          isDiagnostic: raw.status === 'diagnostic_complete',
+          disclaimer: 'DIAGNOSTIC OUTPUT — NOT A VALIDATED MODEL PREDICTION',
+          verdict: 'Diagnostic inspection complete',
+          isManipulated: null,
+          confidencePct: null,
+          scoreType: 'No classifier score available',
+          scores: null,
           metadata: {
             filename: file.name,
             fileSize: file.size,
@@ -60,8 +56,11 @@ export const analysisService = {
             spatialHeatmapUrl: raw.visualizations?.spatial_heatmap,
           },
           spectralProfile: raw.spectral_profile || [],
-          findings: raw.findings || ['Forensic pipeline completed without exception.'],
-          modelVersion: 'ResNet18-FFT-DWT-v1.0 (Live Endpoint)',
+          findings: raw.findings || [],
+          modelVersion: raw.model_version,
+          status: raw.status,
+          inferenceAvailable: raw.inference_available,
+          diagnosticMessage: raw.message,
         };
       } catch (err) {
         console.error('API call failed, unable to complete analysis:', err);

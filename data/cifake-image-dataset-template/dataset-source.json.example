@@ -1,0 +1,16 @@
+{
+  "name": "CIFAKE",
+  "version": "cifake-image-v1",
+  "source_url": "<official CIFAKE source URL>",
+  "license_or_access_terms": "<verified licence and access terms>",
+  "permitted_intended_use": "<documented intended use>",
+  "date_obtained": "<YYYY-MM-DD>",
+  "label_definitions": {
+    "real": 0,
+    "fake": 1
+  },
+  "data_type": "image",
+  "video_derived": false,
+  "grouping_policy": "One group per image when source/identity metadata is unavailable.",
+  "limitations_bias_notes": "No source/identity metadata; this limitation must be recorded in the dataset card."
+}

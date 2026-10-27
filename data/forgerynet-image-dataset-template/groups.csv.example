@@ -1,0 +1,3 @@
+path,group_id
+real/example__frame-00000010__sample-000.jpg,official-original-video-id
+fake/example__frame-00000010__sample-000.jpg,official-original-video-id

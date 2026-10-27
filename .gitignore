@@ -8,6 +8,7 @@ __pycache__/
 venv/
 .env
 .env.*
+!.env.example
 
 # IDE / editor
 .vscode/
@@ -23,6 +24,8 @@ Thumbs.db
 data/raw/
 data/faces/
 data/metadata/
+data/processed/
+data/groups.csv
 checkpoints/
 experiments/
 *.pt

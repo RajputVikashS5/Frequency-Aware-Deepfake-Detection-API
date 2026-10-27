@@ -15,10 +15,10 @@ export default function Footer() {
               <span className="font-bold text-sm text-slate-100">{appConfig.appName}</span>
             </div>
             <p className="text-slate-400 leading-relaxed max-w-md">
-              B.Tech CSE-AIML Project: Frequency-Aware Deepfake Detection and Image Forensics Using Spatial-Frequency Fusion. Investigates complementary 2D Fourier (FFT) and discrete wavelet (DWT) signatures alongside spatial RGB features.
+              Frequency-Aware Deepfake Detection and Image Forensics Using Spatial-Frequency Fusion. Investigates complementary 2D Fourier (FFT) and discrete wavelet (DWT) signatures alongside spatial RGB features.
             </p>
             <div className="text-[11px] text-slate-400 font-mono">
-              Academic Research Prototype • Local Execution Scaffold
+            
             </div>
           </div>
 

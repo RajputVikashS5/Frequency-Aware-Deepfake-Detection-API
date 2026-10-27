@@ -142,7 +142,7 @@ function generateCanvasVisualizations(imgElement, isManipulated) {
  * Produces structured, reproducible forensic outputs labeled as demo data.
  */
 export async function analyzeInDemoMode(file, previewUrl) {
-  // Simulate network/model inference latency
+  // Simulate diagnostic demo latency; this is never a trained model result.
   await new Promise((resolve) => setTimeout(resolve, 1400));
 
   // Determine heuristic state based on file name or size to provide variety

@@ -1,0 +1,16 @@
+{
+  "name": "ForgeryNet-derived still images",
+  "version": "forgerynet-images-v1",
+  "source_url": "<official ForgeryNet source URL>",
+  "license_or_access_terms": "<verified licence and access terms>",
+  "permitted_intended_use": "<documented intended use>",
+  "date_obtained": "<YYYY-MM-DD>",
+  "label_definitions": {
+    "real": 0,
+    "fake": 1
+  },
+  "data_type": "image",
+  "video_derived": true,
+  "grouping_policy": "Every frame inherits the official original/source video ID from CSV metadata.",
+  "limitations_bias_notes": "<document known limitations and source imbalance>"
+}
