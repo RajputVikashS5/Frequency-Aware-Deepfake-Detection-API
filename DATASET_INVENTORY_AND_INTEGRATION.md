@@ -2,14 +2,14 @@
 
 ## Current R2 layout
 
-The configured prefixes are read from `R2_FORGERYNET_PREFIX` and
-`R2_CIFAKE_PREFIX` (defaults: `forgerynet/` and `CIfake/`). The bucket name is
+The configured prefixes are read from `R2_FACEFORENSICSPP_PREFIX` and
+`R2_CIFAKE_PREFIX` (defaults: `faceforensics++/` and `CIfake/`). The bucket name is
 kept separate from object keys. The inventory never downloads image or video
 objects.
 
 The observed listing before this implementation was:
 
-- ForgeryNet: `7,010` objects (`7,000` MP4 and `10` CSV objects).
+- FaceForensics++: `7,010` objects (`7,000` MP4 and `10` CSV objects).
 - CIFAKE: the prior `10,000`-object scan was incomplete and must not be used as
   a dataset total.
 
@@ -19,7 +19,7 @@ unchanged or that CIFAKE is complete.
 The live inventory performed during this implementation completed both
 prefixes. Current observed counts were:
 
-- ForgeryNet: `7,010` objects, `7,000` MP4, `10` CSV, `1,000` original and
+- FaceForensics++: `7,010` objects, `7,000` MP4, `10` CSV, `1,000` original and
   `6,000` manipulated videos; no unknown objects.
 - CIFAKE: `23,550` objects, `23,549` JPG and one extensionless object.
   Recognized images were train `4,515` real / `4,516` fake and test `10,000`
@@ -31,7 +31,7 @@ version. Re-run the command before using them for training.
 
 ## Pagination and confidence
 
-`backend.app.inventory_forgerynet` calls `list_objects_v2` with continuation
+`backend.app.inventory_faceforensicspp` calls `list_objects_v2` with continuation
 tokens and a bounded `MaxKeys`. A report has:
 
 - `completed: true` when the service reported the final page.
@@ -63,14 +63,14 @@ partition/class, recognized image totals, and a reconciliation flag.
 Run a complete scan only with a limit above the expected object count:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.inventory_forgerynet `
+.\.venv\Scripts\python.exe -m backend.app.inventory_faceforensicspp `
   --dataset cifake --max-objects 1000000
 ```
 
 To produce a deduplicated object-key manifest without downloading image bytes:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.inventory_forgerynet `
+.\.venv\Scripts\python.exe -m backend.app.inventory_faceforensicspp `
   --dataset cifake --max-objects 1000000 `
   --manifest-output data\metadata\cifake-r2-image-manifest.csv
 ```
@@ -80,16 +80,16 @@ The manifest fields are `dataset`, `object_key`, `media_type`, `label`,
 It is a source/object manifest for the existing local preparation pipeline; it
 does not replace the validated RGB preprocessing or FFT feature code.
 
-## ForgeryNet metadata
+## FaceForensics++ metadata
 
 The inventory counts CSV objects and provides bounded CSV inspection. CSV
 headers and representative rows are preserved without assigning meaning to
 unknown columns:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.inventory_forgerynet `
-  --dataset forgerynet --max-objects 1000000 `
-  --csv-key forgerynet/csv/<metadata-file>.csv --preview-rows 10
+.\.venv\Scripts\python.exe -m backend.app.inventory_faceforensicspp `
+  --dataset faceforensicspp --max-objects 1000000 `
+  --csv-key faceforensics++/csv/<metadata-file>.csv --preview-rows 10
 ```
 
 The ten current CSV objects use the verified columns `File Path` and `Label`
@@ -101,17 +101,17 @@ object keys and metadata source, and reports unmatched entries, duplicate
 entries, ambiguous labels, and videos without metadata. It does not treat the
 aggregate CSV as per-video metadata.
 
-Use the official mapping CSV with `prepare_forgerynet_images`; it must expose
+Use the official mapping CSV with `prepare_faceforensicspp_images`; it must expose
 manipulated-video key, source/original-video identifier, and manipulation-type
 columns. The existing command rejects missing or ambiguous mappings instead of
 inferring a label from a filename or folder:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.prepare_forgerynet_images `
-  --videos data\downloads\forgerynet `
-  --mapping-csv data\forgerynet\csv\mapping.csv `
-  --source-metadata data\forgerynet-image-dataset-template\dataset-source.json `
-  --output data\raw\forgerynet-images-v1 --samples 8 --margin 0.05
+.\.venv\Scripts\python.exe -m backend.app.prepare_faceforensicspp_images `
+  --videos data\downloads\faceforensicspp `
+  --mapping-csv data\faceforensicspp\csv\mapping.csv `
+  --source-metadata data\faceforensicspp-image-dataset-template\dataset-source.json `
+  --output data\raw\faceforensicspp-images-v1 --samples 8 --margin 0.05
 ```
 
 Original videos remain `real`; mapped manipulated videos are `fake`, with
@@ -143,11 +143,11 @@ objects:
 
 The CIFAKE `test` partition is emitted as `external-test.csv` and marked
 evaluation-only. It is not used for training, calibration, or model selection.
-ForgeryNet frame extraction is intentionally bounded:
+FaceForensics++ frame extraction is intentionally bounded:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.extract_forgerynet_frames `
-  --input data\downloads\forgerynet\original\example.mp4 `
+.\.venv\Scripts\python.exe -m backend.app.extract_faceforensicspp_frames `
+  --input data\downloads\faceforensicspp\original\example.mp4 `
   --output data\frames\example --samples 8 --margin 0.05
 ```
 

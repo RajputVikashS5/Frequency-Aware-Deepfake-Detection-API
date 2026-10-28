@@ -18,7 +18,7 @@ data/raw/
 For Phase B dataset versions, use separate directories:
 
 ```text
-data/raw/forgerynet/
+data/raw/faceforensicspp/
   real/
   fake/
   groups.csv
@@ -31,7 +31,7 @@ data/raw/CIfake/
 
 `dataset-source.json` records provenance, licence/access terms, intended use,
 label definitions, whether the still images are video-derived, grouping
-policy, and limitations. ForgeryNet requires a `groups.csv` row for every
+policy, and limitations. FaceForensics++ requires a `groups.csv` row for every
 image so source videos cannot cross splits. CIFAKE uses one image per group
 when no source identity metadata exists and records a warning.
 
@@ -72,7 +72,7 @@ With source groups:
 The command creates `train.csv`, `val.csv`, `test.csv`, and `report.json`.
 It does not download data or create sample images.
 
-ForgeryNet-derived images and CIFAKE are prepared as separate versioned
+FaceForensics++-derived images and CIFAKE are prepared as separate versioned
 datasets. Do not combine them implicitly. The exact offline commands and
 their image-only boundary are documented in
 [`backend/README.md`](../backend/README.md). Model training begins only

@@ -13,7 +13,7 @@ from typing import Any, Iterable
 from PIL import Image, UnidentifiedImageError
 
 from .config import settings
-from .inventory_forgerynet import IMAGE_EXTENSIONS, _list_objects
+from .inventory_faceforensicspp import IMAGE_EXTENSIONS, _list_objects
 from .r2 import R2ArtifactStore
 from .r2_verify import R2VerificationError, dataset_prefixes, validate_configuration
 

@@ -30,12 +30,12 @@ changes labels. See [`data/README.md`](../data/README.md) for the expected
 layout and licensing cautions.
 
 The complete inventory, verified live counts, object-manifest format, and
-ForgeryNet CSV findings are documented in
+FaceForensics++ CSV findings are documented in
 [`DATASET_INVENTORY_AND_INTEGRATION.md`](../DATASET_INVENTORY_AND_INTEGRATION.md).
 
 ## Offline image-only dataset preparation
 
-The deployed FastAPI product remains image-only. ForgeryNet MP4 files are
+The deployed FastAPI product remains image-only. FaceForensics++ MP4 files are
 handled only by offline commands after explicit bounded download; no video
 upload endpoint, video API, timeline, temporal model, or video prediction is
 added.
@@ -43,47 +43,47 @@ added.
 Inventory R2 without downloading objects:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.inventory_forgerynet `
-  --dataset forgerynet --max-objects 1000
-.\.venv\Scripts\python.exe -m backend.app.inventory_forgerynet `
+.\.venv\Scripts\python.exe -m backend.app.inventory_faceforensicspp `
+  --dataset faceforensicspp --max-objects 1000
+.\.venv\Scripts\python.exe -m backend.app.inventory_faceforensicspp `
   --dataset cifake --max-objects 1000
 ```
 
 Inspect bounded CSV metadata previews without assuming a schema:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.inventory_forgerynet `
-  --dataset forgerynet --inspect-csv data\forgerynet\csv\metadata.csv `
+.\.venv\Scripts\python.exe -m backend.app.inventory_faceforensicspp `
+  --dataset faceforensicspp --inspect-csv data\faceforensicspp\csv\metadata.csv `
   --preview-rows 5 --max-objects 1
-# For an R2 CSV key, use --csv-key forgerynet/csv/<official-file>.csv
+# For an R2 CSV key, use --csv-key faceforensics++/csv/<official-file>.csv
 ```
 
-Download selected ForgeryNet videos only:
+Download selected FaceForensics++ videos only:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.download_forgerynet_videos `
-  --key forgerynet/original/example.mp4 --max-videos 1 `
-  --output data\downloads\forgerynet
+.\.venv\Scripts\python.exe -m backend.app.download_faceforensicspp_videos `
+  --key faceforensics++/original/example.mp4 --max-videos 1 `
+  --output data\downloads\faceforensicspp
 ```
 
 Extract bounded, evenly spaced local frames (not through FastAPI):
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.extract_forgerynet_frames `
-  --input data\downloads\forgerynet\original\example.mp4 `
+.\.venv\Scripts\python.exe -m backend.app.extract_faceforensicspp_frames `
+  --input data\downloads\faceforensicspp\original\example.mp4 `
   --output data\frames\example --samples 8 --margin 0.05
 ```
 
-Create the ForgeryNet-derived image dataset. The mapping CSV must contain
+Create the FaceForensics++-derived image dataset. The mapping CSV must contain
 official manipulated-key, source/original-video-ID, and manipulation-type
 columns; filename inference is rejected:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.prepare_forgerynet_images `
-  --videos data\downloads\forgerynet `
-  --mapping-csv data\forgerynet\csv\mapping.csv `
-  --source-metadata data\forgerynet-image-dataset-template\dataset-source.json `
-  --output data\raw\forgerynet-images-v1 --samples 8 --margin 0.05
+.\.venv\Scripts\python.exe -m backend.app.prepare_faceforensicspp_images `
+  --videos data\downloads\faceforensicspp `
+  --mapping-csv data\faceforensicspp\csv\mapping.csv `
+  --source-metadata data\faceforensicspp-image-dataset-template\dataset-source.json `
+  --output data\raw\faceforensicspp-images-v1 --samples 8 --margin 0.05
 ```
 
 Bounded CIFAKE image download is performed by the explicit R2 sample command
@@ -109,9 +109,9 @@ The existing generic image manifest command remains available:
 
 ```powershell
 .\.venv\Scripts\python.exe -m backend.app.prepare_dataset `
-  --input data\raw\forgerynet-images-v1 `
-  --output data\metadata\forgerynet-images-v1 `
-  --dataset forgerynet --seed 42
+  --input data\raw\faceforensicspp-images-v1 `
+  --output data\metadata\faceforensicspp-images-v1 `
+  --dataset faceforensicspp --seed 42
 ```
 
 Review generated manifests, provenance, exclusions, and split-integrity
@@ -120,7 +120,7 @@ or checkpoints are created by these commands.
 
 ## Phase 4 RGB baseline
 
-The RGB baseline has independent runs for ForgeryNet-derived still images and
+The RGB baseline has independent runs for FaceForensics++-derived still images and
 CIFAKE. It uses pretrained ImageNet ResNet-18 weights, 224 x 224 RGB inputs,
 ImageNet normalization, AdamW, deterministic seeds, validation checkpoint
 selection, and final test evaluation. Preflight checks missing/corrupt images,
@@ -136,12 +136,12 @@ duplicate records, and source-group leakage.
   --output-dir experiments\rgb-baseline --epochs 5 --batch-size 16 --seed 42
 
 .\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
-  --task forgerynet --manifest-dir data\metadata\forgerynet-images-v1 `
-  --source-frame-manifest data\raw\forgerynet-images-v1\frame-manifest.csv `
+  --task faceforensicspp --manifest-dir data\metadata\faceforensicspp-images-v1 `
+  --source-frame-manifest data\raw\faceforensicspp-images-v1\frame-manifest.csv `
   --output-dir experiments\rgb-baseline --epochs 5 --batch-size 16 --seed 42
 ```
 
-ForgeryNet training requires the official source-video/manipulation mapping
+FaceForensics++ training requires the official source-video/manipulation mapping
 from `frame-manifest.csv`; filename-only inference is rejected. CIFAKE's
 `external-test.csv` is evaluation-only and is never used for training or
 model selection. Generated checkpoints, configurations, histories, and reports
@@ -176,7 +176,7 @@ RGB run. Diagnostic FFT images are not used as a substitute for model input.
 The report, history, configuration, checkpoint, and RGB-versus-FFT
 comparison are written under `experiments\fft-baseline\cifake-image-v2`.
 The observed one-epoch internal-test accuracies were 93.50% for RGB and
-85.45% for FFT on the identical CIFAKE split. ForgeryNet-derived training
+85.45% for FFT on the identical CIFAKE split. FaceForensics++-derived training
 remains blocked until its actual dataset identity and official source-video
 mappings are verified.
 
@@ -255,10 +255,10 @@ Run the read-only connectivity and dataset-prefix check after configuring
 
 The verifier keeps the bucket name separate from object keys, checks
 `head_bucket`, and lists at most 20 object names under the configured
-`R2_FORGERYNET_PREFIX` and `R2_CIFAKE_PREFIX`. Select one dataset or both:
+`R2_FACEFORENSICSPP_PREFIX` and `R2_CIFAKE_PREFIX`. Select one dataset or both:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backend.app.r2_verify --dataset forgerynet
+.\.venv\Scripts\python.exe -m backend.app.r2_verify --dataset faceforensicspp
 .\.venv\Scripts\python.exe -m backend.app.r2_verify --dataset cifake
 .\.venv\Scripts\python.exe -m backend.app.r2_verify --all-datasets
 ```
@@ -272,7 +272,7 @@ For the configured `deepfake` bucket, the all-datasets check is:
 Expected successful output begins with:
 
 ```text
-forgerynet/: accessible
+faceforensics++/: accessible
 CIfake/: accessible
 ```
 
@@ -280,11 +280,11 @@ The controlled sample command is explicit and capped at 5,000 images per label:
 
 ```powershell
 .\.venv\Scripts\python.exe -m backend.app.fetch_dataset_sample `
-  --dataset forgerynet --per-label 10 `
-  --output data\sample\forgerynet
+  --dataset cifake --per-label 10 `
+  --output data\sample\cifake
 ```
 
-Local preparation requires `dataset-source.json`; ForgeryNet also
+Local preparation requires `dataset-source.json`; FaceForensics++ also
 requires complete `groups.csv` mappings. CIFAKE may fall back to one group per
 image only when that limitation is recorded in the report. Generated artifact
 uploads are disabled unless `prepare_dataset` receives `--upload-r2`; uploads

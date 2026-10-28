@@ -205,7 +205,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("forgerynet", "cifake"), required=True)
+    parser.add_argument("--task", choices=("faceforensicspp", "cifake"), required=True)
     parser.add_argument("--manifest-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/fusion-baseline"))
     parser.add_argument("--epochs", type=int, default=5)

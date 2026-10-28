@@ -5,17 +5,17 @@ from pathlib import Path
 import pytest
 
 from backend.app.dataset import scan_dataset
-from backend.app.extract_forgerynet_frames import extract_frames
+from backend.app.extract_faceforensicspp_frames import extract_frames
 from backend.app.fetch_dataset_sample import fetch_sample, recover_samples
-from backend.app.inventory_forgerynet import (
+from backend.app.inventory_faceforensicspp import (
     build_cifake_image_manifest,
     inventory_dataset,
-    parse_forgerynet_csv_bytes,
-    parse_forgerynet_video_manifest,
+    parse_faceforensicspp_csv_bytes,
+    parse_faceforensicspp_video_manifest,
 )
 from backend.app.prepare_cifake_images import prepare_cifake, reject_external_evaluation_manifest
 from backend.app.prepare_cifake_images import validate_cifake
-from backend.app.prepare_forgerynet_images import load_official_mapping
+from backend.app.prepare_faceforensicspp_images import load_official_mapping
 
 
 class PaginatedClient:
@@ -90,8 +90,8 @@ def test_cifake_inventory_reports_unknown_layout_and_manifest_is_deduplicated():
     ]
 
 
-def test_forgerynet_csv_inspection_does_not_guess_unknown_schema():
-    result = parse_forgerynet_csv_bytes(
+def test_faceforensicspp_csv_inspection_does_not_guess_unknown_schema():
+    result = parse_faceforensicspp_csv_bytes(
         b"video_id,category\norig-1,original\n",
         "metadata.csv",
     )
@@ -102,12 +102,12 @@ def test_forgerynet_csv_inspection_does_not_guess_unknown_schema():
     assert "labels remain unknown" in result.warnings[0]
 
 
-def test_forgerynet_video_manifest_maps_verified_csv_labels_and_reports_missing_keys():
-    result = parse_forgerynet_video_manifest(
+def test_faceforensicspp_video_manifest_maps_verified_csv_labels_and_reports_missing_keys():
+    result = parse_faceforensicspp_video_manifest(
         b", File Path, Label\n0,original/000.mp4,REAL\n"
         b"1,FaceSwap/001.mp4,FAKE\n2,FaceSwap/001.mp4,REAL\n",
         "original.csv",
-        available_keys=("forgerynet/original/000.mp4",),
+        available_keys=("faceforensics++/original/000.mp4",),
     )
 
     assert [row["label"] for row in result["records"]] == ["real", "fake"]
@@ -117,7 +117,7 @@ def test_forgerynet_video_manifest_maps_verified_csv_labels_and_reports_missing_
     assert result["unmatched_metadata_entries"] == ["FaceSwap/001.mp4"]
 
 
-def test_forgerynet_mapping_requires_official_columns(tmp_path):
+def test_faceforensicspp_mapping_requires_official_columns(tmp_path):
     path = tmp_path / "mapping.csv"
     path.write_text("video,source,method\nfake.mp4,orig-1,FaceSwap\n", encoding="utf-8")
     with pytest.raises(ValueError, match="required official mapping columns"):
@@ -216,7 +216,7 @@ def test_fetch_sample_paginates_and_downloads_both_classes(tmp_path):
         "cifake", tmp_path, partition="train", per_label=1,
         client=client, config=type("Config", (), {
             "r2_bucket": "bucket", "r2_cifake_prefix": "CIfake",
-            "r2_forgerynet_prefix": "forgerynet",
+            "r2_faceforensicspp_prefix": "faceforensics++",
         })(),
     )
 

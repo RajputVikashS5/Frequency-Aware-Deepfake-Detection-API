@@ -353,12 +353,12 @@ required for this phase.
 
 ### Phase 4 --- RGB baseline
 
-**Status: implemented for CIFAKE; blocked for the unverified
-ForgeryNet/FaceForensics++ task.**
+**Status: implemented for CIFAKE; blocked for the mixed
+FaceForensics++ export pending subset and source-group decisions.**
 
 Phase 4 uses two independent RGB-only ResNet-18 tasks:
 
-- ForgeryNet-derived still images: authentic (`real`, label `0`) versus
+- FaceForensics++-derived still images: authentic (`real`, label `0`) versus
   validated manipulated (`fake`, label `1`) frames. A valid
   `frame-manifest.csv` with official source-video and manipulation metadata is
   required before training.
@@ -490,12 +490,12 @@ fusion model is not connected to FastAPI.
 
 ## Dataset and data-leakage strategy
 
-Potential sources such as ForgeryNet and Celeb-DF originate as
+Potential sources such as FaceForensics++ and Celeb-DF originate as
 video datasets. They may be used only if their access terms permit it
 and still-image samples are prepared offline. The web application
 remains image-only.
 
--   ForgeryNet: use the dataset's official distribution channel and record
+-   FaceForensics++: use the dataset's official distribution channel and record
     its licence and access terms in `dataset-source.json`.
 -   Celeb-DF: https://github.com/yuezunli/celeb-deepfakeforensics
 -   DFDC: https://www.kaggle.com/c/deepfake-detection-challenge

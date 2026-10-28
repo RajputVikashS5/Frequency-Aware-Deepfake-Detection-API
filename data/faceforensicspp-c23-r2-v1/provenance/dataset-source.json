@@ -1,0 +1,11 @@
+{
+  "name": "FaceForensics++ C23 standard-method subset",
+  "version": "r2-c23-standard-methods-v1",
+  "source_url": "https://github.com/ondyari/FaceForensics/blob/master/dataset/README.md",
+  "license_or_access_terms": "https://kaldir.vc.in.tum.de/faceforensics/webpage/FaceForensics_TOS.pdf",
+  "permitted_intended_use": "Research and development after user-confirmed acceptance of the FaceForensics++ Terms of Use.",
+  "date_obtained": "2026-10-28T19:57:32.046538+00:00",
+  "r2_prefix": "faceforensics++/",
+  "grouping_policy": "Official <target sequence>_<source sequence> convention; group by target sequence.",
+  "excluded_component": "DeepFakeDetection excluded because its actor-pair naming cannot be mapped to the available original-video collection."
+}

@@ -44,13 +44,18 @@ def client_error(code, status):
 
 def test_valid_read_only_access_lists_at_most_twenty_objects():
     client = ReadOnlyClient(
-        {"forgerynet/": ["forgerynet/a"], "CIfake/": ["CIfake/train.csv"]}
+        {
+            "faceforensics++/": ["faceforensics++/original/000.mp4"],
+            "CIfake/": ["CIfake/train.csv"],
+        }
     )
 
     result = verify_r2(config(), client=client)
 
     assert result.bucket_reachable is True
-    assert result.prefixes[0].object_names == ("forgerynet/a",)
+    assert result.prefixes[0].object_names == (
+        "faceforensics++/original/000.mp4",
+    )
     assert all(call[0] != "put_object" for call in client.calls)
     assert all(call[0] != "delete_object" for call in client.calls)
     assert all(call[1].get("MaxKeys") == 20 for call in client.calls if call[0] == "list_objects_v2")
@@ -61,11 +66,14 @@ def test_valid_read_only_access_lists_at_most_twenty_objects():
 def test_default_dataset_prefixes_are_bucket_relative():
     prefixes = dataset_prefixes(config())
 
-    assert prefixes == {"forgerynet": "forgerynet/", "cifake": "CIfake/"}
+    assert prefixes == {
+        "faceforensicspp": "faceforensics++/",
+        "cifake": "CIfake/",
+    }
     assert all(not prefix.startswith("deepfake/") for prefix in prefixes.values())
 
 
-def test_dataset_cli_accepts_forgerynet(monkeypatch):
+def test_dataset_cli_accepts_faceforensicspp(monkeypatch):
     captured = {}
 
     def fake_verify_r2(*, selected_datasets):
@@ -74,10 +82,12 @@ def test_dataset_cli_accepts_forgerynet(monkeypatch):
 
     monkeypatch.setattr(r2_verify, "verify_r2", fake_verify_r2)
     monkeypatch.setattr(r2_verify, "_print_result", lambda result: None)
-    monkeypatch.setattr("sys.argv", ["r2_verify", "--dataset", "forgerynet"])
+    monkeypatch.setattr(
+        "sys.argv", ["r2_verify", "--dataset", "faceforensicspp"]
+    )
 
     assert r2_verify.main() == 0
-    assert captured["selected_datasets"] == ("forgerynet",)
+    assert captured["selected_datasets"] == ("faceforensicspp",)
 
 
 def test_missing_configuration_fails_without_client_calls():

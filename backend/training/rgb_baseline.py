@@ -1,4 +1,4 @@
-"""Independent RGB ResNet-18 baselines for ForgeryNet-derived images and CIFAKE."""
+"""Independent RGB ResNet-18 baselines for FaceForensics++ images and CIFAKE."""
 
 from __future__ import annotations
 
@@ -111,30 +111,32 @@ def read_manifest(path: Path, expected_split: str, *, max_records: int | None = 
 
 
 def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
-    if config.task not in {"forgerynet", "cifake"}:
-        raise ValueError("task must be forgerynet or cifake")
+    if config.task not in {"faceforensicspp", "cifake"}:
+        raise ValueError("task must be faceforensicspp or cifake")
     external_card = config.manifest_dir / "external-test-dataset-card.json"
     if config.task == "cifake" and external_card.is_file():
         card = json.loads(external_card.read_text(encoding="utf-8"))
         if card.get("external_evaluation_only") is not True:
             raise ValueError("CIFAKE external-test card must be evaluation-only")
-    if config.task == "forgerynet":
+    if config.task == "faceforensicspp":
         source_manifest = config.source_frame_manifest
         if source_manifest is None:
             raise ValueError(
-                "ForgeryNet-derived training requires --source-frame-manifest "
+                "FaceForensics++ training requires --source-frame-manifest "
                 "pointing to the official frame-manifest.csv"
             )
         if not source_manifest.is_file():
             raise ValueError(
-                "ForgeryNet-derived training requires frame-manifest.csv with "
+                "FaceForensics++ training requires frame-manifest.csv with "
                 "source_video_key and manipulation_type fields"
             )
         with source_manifest.open(newline="", encoding="utf-8") as handle:
             fields = set(csv.DictReader(handle).fieldnames or ())
         required = {"path", "label_name", "label", "group_id", "source_video_key", "manipulation_type"}
         if not required.issubset(fields):
-            raise ValueError("ForgeryNet frame-manifest.csv lacks validated source/manipulation fields")
+            raise ValueError(
+                "FaceForensics++ frame-manifest.csv lacks validated source/manipulation fields"
+            )
     splits = {
         name: read_manifest(config.manifest_dir / f"{name}.csv", name, max_records=config.max_records)
         for name in ("train", "val", "test")
@@ -329,7 +331,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("forgerynet", "cifake"), required=True)
+    parser.add_argument("--task", choices=("faceforensicspp", "cifake"), required=True)
     parser.add_argument("--manifest-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/rgb-baseline"))
     parser.add_argument("--epochs", type=int, default=5)

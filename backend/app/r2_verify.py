@@ -73,8 +73,8 @@ class VerificationResult:
 
 def dataset_prefixes(config: Settings = settings) -> dict[str, str]:
     return {
-        "forgerynet": normalize_prefix(
-            config.r2_forgerynet_prefix, bucket=config.r2_bucket
+        "faceforensicspp": normalize_prefix(
+            config.r2_faceforensicspp_prefix, bucket=config.r2_bucket
         ),
         "cifake": normalize_prefix(config.r2_cifake_prefix, bucket=config.r2_bucket),
     }
@@ -148,7 +148,7 @@ def verify_r2(
     config: Settings = settings,
     *,
     client: Any | None = None,
-    selected_datasets: tuple[str, ...] = ("forgerynet", "cifake"),
+    selected_datasets: tuple[str, ...] = ("faceforensicspp", "cifake"),
 ) -> VerificationResult:
     validate_configuration(config)
     prefixes = dataset_prefixes(config)
@@ -201,10 +201,10 @@ def _print_result(result: VerificationResult) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--dataset", choices=("forgerynet", "cifake"))
+    selection.add_argument("--dataset", choices=("faceforensicspp", "cifake"))
     selection.add_argument("--all-datasets", action="store_true")
     args = parser.parse_args()
-    selected = (args.dataset,) if args.dataset else ("forgerynet", "cifake")
+    selected = (args.dataset,) if args.dataset else ("faceforensicspp", "cifake")
     try:
         _print_result(verify_r2(selected_datasets=selected))
     except R2VerificationError as exc:

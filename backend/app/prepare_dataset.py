@@ -97,20 +97,22 @@ def prepare_dataset(
         if card.get("external_evaluation_only") is True:
             raise ValueError("external_evaluation_only datasets cannot be used for training or splits")
     kind = dataset_kind or (
-        "forgerynet" if "forgerynet" in input_path.name.lower() else
+        "faceforensicspp" if "faceforensics" in input_path.name.lower() else
         "cifake" if "cifake" in input_path.name.lower() else None
     )
     metadata = validate_dataset_metadata(input_path, dataset_kind=kind)
     groups = metadata.groups or load_groups(groups_file)
     report = scan_dataset(input_path, groups=groups)
-    if kind == "forgerynet":
+    if kind == "faceforensicspp":
         missing = [
             record.path for record in report.records
             if             str(Path(record.path).relative_to(input_path)).replace("\\", "/")
             not in groups
         ]
         if missing:
-            raise ValueError(f"ForgeryNet is missing group IDs for {len(missing)} images")
+            raise ValueError(
+                f"FaceForensics++ is missing group IDs for {len(missing)} images"
+            )
     if report.cross_label_duplicate_paths:
         raise ValueError("Exact duplicate image content occurs across labels")
     splits = split_records(report.records, seed=seed)
@@ -171,7 +173,7 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("data/metadata"))
     parser.add_argument("--groups-file", type=Path)
-    parser.add_argument("--dataset", choices=("forgerynet", "cifake"))
+    parser.add_argument("--dataset", choices=("faceforensicspp", "cifake"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--upload-r2", action="store_true")
     parser.add_argument("--force", action="store_true")

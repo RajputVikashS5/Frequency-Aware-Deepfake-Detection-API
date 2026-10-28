@@ -77,11 +77,12 @@ def validate_dataset_metadata(
     groups_path = dataset_root / "groups.csv"
     groups = _read_groups(groups_path)
     warnings: list[str] = []
-    if dataset_kind == "forgerynet" or "forgerynet" in str(metadata["name"]).lower():
+    dataset_name = str(metadata["name"]).lower()
+    if dataset_kind == "faceforensicspp" or "faceforensics" in dataset_name:
         if metadata["video_derived"] is not True:
-            raise ValueError("ForgeryNet metadata must set video_derived=true")
+            raise ValueError("FaceForensics++ metadata must set video_derived=true")
         if not groups:
-            raise ValueError("ForgeryNet requires groups.csv with every image mapped")
+            raise ValueError("FaceForensics++ requires groups.csv with every image mapped")
     if dataset_kind == "cifake" or "cifake" in str(metadata["name"]).lower():
         if not str(metadata["grouping_policy"]).strip():
             raise ValueError("CIFAKE requires a documented grouping policy")
