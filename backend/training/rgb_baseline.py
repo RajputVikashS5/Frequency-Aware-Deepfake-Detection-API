@@ -314,7 +314,16 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     test_metrics = _metrics(model, test_loader, device)
     (config.output_dir / f"{config.task}-rgb-resnet18-history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
     (config.output_dir / f"{config.task}-rgb-resnet18-config.json").write_text(
-        json.dumps({**asdict(config), "manifest_dir": str(config.manifest_dir), "output_dir": str(config.output_dir)}, indent=2),
+        json.dumps(
+            {
+                **asdict(config),
+                "manifest_dir": str(config.manifest_dir),
+                "output_dir": str(config.output_dir),
+                "source_frame_manifest": str(config.source_frame_manifest) if config.source_frame_manifest else None,
+            },
+            indent=2,
+            default=str,
+        ),
         encoding="utf-8",
     )
     report = {
