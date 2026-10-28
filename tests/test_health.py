@@ -31,6 +31,7 @@ def test_analyze_image_endpoint_returns_diagnostic_only_response():
     assert data["prediction"] is None
     assert data["score"] is None
     assert data["model_version"] is None
+    assert data["calibrated"] is False
     assert "is_fake" not in data
     assert "confidence_pct" not in data
     assert "calibrated_score" not in data

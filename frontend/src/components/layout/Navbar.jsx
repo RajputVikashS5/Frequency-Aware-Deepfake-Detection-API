@@ -1,12 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { Shield, Menu, X, Radio, LogIn, User } from 'lucide-react';
+import { Shield, Menu, X, User } from 'lucide-react';
 import { appConfig } from '../../config/appConfig';
 import { authService } from '../../services/authService';
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(null);
   const currentUser = authService.getCurrentUser();
+  const authActive = Boolean(appConfig.authEnabled || appConfig.enableAuth);
+
+  useEffect(() => {
+    if (appConfig.isDemoMode) return;
+
+    let mounted = true;
+    const checkHealth = () => {
+      fetch(`${appConfig.apiBaseUrl}/health`)
+        .then((res) => res.json())
+        .then(() => {
+          if (mounted) setBackendOnline(true);
+        })
+        .catch(() => {
+          if (mounted) setBackendOnline(false);
+        });
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const links = [
     { to: '/', label: 'Home' },
@@ -19,7 +44,7 @@ export default function Navbar() {
     <header className="bg-card border-b border-border sticky top-0 z-40 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Brand */}
-        <Link to="/" className="flex items-center space-x-3 group">
+        <Link to="/" className="flex items-center space-x-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan rounded-lg p-1">
           <div className="w-9 h-9 rounded-lg bg-card-subtle border border-border-bright flex items-center justify-center text-accent-cyan group-hover:border-accent-cyan transition-colors">
             <Shield className="w-5 h-5" />
           </div>
@@ -41,13 +66,13 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center space-x-1">
+        <nav className="hidden md:flex items-center space-x-1" aria-label="Main Navigation">
           {links.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
               className={({ isActive }) =>
-                `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                `px-3 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan ${
                   isActive
                     ? 'bg-card-subtle text-accent-cyan border border-border-bright shadow-sm'
                     : 'text-slate-300 hover:text-slate-100 hover:bg-card-hover'
@@ -61,18 +86,40 @@ export default function Navbar() {
 
         {/* Right Actions & Auth */}
         <div className="hidden md:flex items-center space-x-3">
-          {appConfig.enableAuth && (
+          {/* Backend Status indicator (hidden in demo mode) */}
+          {!appConfig.isDemoMode && (
+            <div className="flex items-center text-xs font-mono text-slate-400 space-x-1.5 border-r border-border pr-3">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  backendOnline === true
+                    ? 'bg-emerald-500'
+                    : backendOnline === false
+                    ? 'bg-red-500'
+                    : 'bg-amber-400 animate-pulse'
+                }`}
+              />
+              <span>
+                {backendOnline === true
+                  ? 'API: Online'
+                  : backendOnline === false
+                  ? 'API: Offline'
+                  : 'Connecting...'}
+              </span>
+            </div>
+          )}
+
+          {authActive && (
             currentUser ? (
               <div className="flex items-center space-x-2 text-xs text-slate-300 bg-card-subtle border border-border px-3 py-1.5 rounded-md">
                 <User className="w-3.5 h-3.5 text-accent-cyan" />
-                <span className="font-mono">{currentUser.name}</span>
+                <span className="font-mono text-slate-200">{currentUser.name}</span>
                 <button
                   type="button"
                   onClick={() => {
                     authService.logout();
                     window.location.reload();
                   }}
-                  className="text-slate-400 hover:text-red-400 ml-2"
+                  className="text-slate-400 hover:text-red-400 ml-2 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400 rounded"
                 >
                   Logout
                 </button>
@@ -81,13 +128,13 @@ export default function Navbar() {
               <div className="flex items-center space-x-2">
                 <Link
                   to="/login"
-                  className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-slate-100 hover:bg-card-hover rounded-md border border-border transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-slate-100 hover:bg-card-hover rounded-md border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan"
                 >
                   Login
                 </Link>
                 <Link
                   to="/register"
-                  className="px-3 py-1.5 text-xs font-semibold text-canvas bg-accent-cyan hover:bg-accent-cyan-light rounded-md transition-colors"
+                  className="px-3 py-1.5 text-xs font-semibold text-canvas bg-accent-cyan hover:bg-accent-cyan-light rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan"
                 >
                   Register
                 </Link>
@@ -97,7 +144,7 @@ export default function Navbar() {
 
           <Link
             to="/analyze"
-            className="px-3.5 py-1.5 text-xs font-semibold text-slate-100 bg-accent-blue hover:bg-accent-blue-light rounded-md shadow-sm transition-colors"
+            className="px-3.5 py-1.5 text-xs font-semibold text-slate-100 bg-accent-blue hover:bg-accent-blue-light rounded-md shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue"
           >
             New Analysis
           </Link>
@@ -108,7 +155,7 @@ export default function Navbar() {
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-md text-slate-400 hover:text-slate-200 hover:bg-card-hover border border-border"
+            className="p-2 rounded-md text-slate-400 hover:text-slate-200 hover:bg-card-hover border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan"
             aria-label="Toggle Navigation Menu"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -125,7 +172,7 @@ export default function Navbar() {
               to={link.to}
               onClick={() => setMobileMenuOpen(false)}
               className={({ isActive }) =>
-                `block px-3 py-2 rounded-md text-base font-medium ${
+                `block px-3 py-2 rounded-md text-base font-medium transition-colors ${
                   isActive
                     ? 'bg-card-subtle text-accent-cyan border border-border-bright'
                     : 'text-slate-300 hover:text-slate-100 hover:bg-card-hover'
@@ -135,19 +182,19 @@ export default function Navbar() {
               {link.label}
             </NavLink>
           ))}
-          {appConfig.enableAuth && (
+          {authActive && (
             <div className="pt-3 border-t border-border flex items-center space-x-3">
               <Link
                 to="/login"
                 onClick={() => setMobileMenuOpen(false)}
-                className="w-1/2 text-center py-2 text-xs font-medium text-slate-300 bg-card-subtle border border-border rounded-md"
+                className="w-1/2 text-center py-2 text-xs font-medium text-slate-300 bg-card-subtle border border-border rounded-md hover:bg-card-hover"
               >
                 Login
               </Link>
               <Link
                 to="/register"
                 onClick={() => setMobileMenuOpen(false)}
-                className="w-1/2 text-center py-2 text-xs font-semibold text-canvas bg-accent-cyan rounded-md"
+                className="w-1/2 text-center py-2 text-xs font-semibold text-canvas bg-accent-cyan hover:bg-accent-cyan-light rounded-md"
               >
                 Register
               </Link>

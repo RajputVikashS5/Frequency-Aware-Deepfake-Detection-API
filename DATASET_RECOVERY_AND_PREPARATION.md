@@ -88,7 +88,8 @@ Recover the two existing samples first:
   --recover-from data\downloads\cifake_test
 ```
 
-Then fetch missing classes into the same root. These commands do not require
+Then fetch missing classes into the same root. The bounded downloader supports
+up to 5,000 images per label; these commands do not require
 `--force` and do not overwrite existing source-key records:
 
 ```powershell

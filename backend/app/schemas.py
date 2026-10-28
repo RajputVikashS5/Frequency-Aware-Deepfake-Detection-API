@@ -23,14 +23,16 @@ class DiagnosticVisualizations(BaseModel):
     spatial_heatmap: str
 
 
-class DiagnosticResponse(BaseModel):
+class AnalysisResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str
     inference_available: bool
-    prediction: None = None
-    score: None = None
-    model_version: None = None
+    prediction: str | None = None
+    score: float | None = None
+    score_type: str | None = None
+    calibrated: bool = False
+    model_version: str | None = None
     message: str
     metadata: DiagnosticMetadata
     visualizations: DiagnosticVisualizations

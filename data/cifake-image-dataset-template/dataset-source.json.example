@@ -1,10 +1,10 @@
 {
-  "name": "CIFAKE",
+  "name": "CIFAKE: Real and AI-Generated Synthetic Images",
   "version": "cifake-image-v1",
-  "source_url": "<official CIFAKE source URL>",
-  "license_or_access_terms": "<verified licence and access terms>",
-  "permitted_intended_use": "<documented intended use>",
-  "date_obtained": "<YYYY-MM-DD>",
+  "source_url": "https://www.kaggle.com/datasets/birdy654/cifake-real-and-ai-generated-synthetic-images",
+  "license_or_access_terms": "MIT license as stated by the CIFAKE Kaggle publisher; cite Bird and Lotfi (2024) and Krizhevsky and Hinton (2009).",
+  "permitted_intended_use": "Research and development of image-only deepfake detection and explainability, subject to the CIFAKE/Kaggle terms and required citations; do not redistribute the downloaded images.",
+  "date_obtained": "2026-10-27",
   "label_definitions": {
     "real": 0,
     "fake": 1

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 
 def fft_log_magnitude(
@@ -36,6 +37,41 @@ def fft_log_magnitude(
         else:
             magnitude.fill(0.0)
     return magnitude
+
+
+def preprocess_fft(
+    image: Image.Image | bytes,
+    *,
+    target_size: tuple[int, int] = (224, 224),
+) -> np.ndarray:
+    """Return a normalized FFT image as a repeated three-channel CHW float32 array.
+
+    Images are decoded as RGB, converted to grayscale with Pillow's fixed
+    luminance transform, resized before the FFT, and normalized independently
+    to [0, 1]. Repeating the single FFT channel preserves the ResNet-18 input
+    contract without presenting RGB pixels to the FFT model.
+    """
+
+    if len(target_size) != 2 or any(size <= 0 for size in target_size):
+        raise ValueError("target_size must contain two positive integers")
+    try:
+        if isinstance(image, bytes):
+            if not image:
+                raise ValueError("Image data is empty")
+            with Image.open(io.BytesIO(image)) as source:
+                source.verify()
+            with Image.open(io.BytesIO(image)) as source:
+                decoded = source.convert("RGB").copy()
+        else:
+            decoded = image.convert("RGB")
+        resized = decoded.resize((target_size[1], target_size[0]), Image.Resampling.BILINEAR)
+        gray = np.asarray(resized.convert("L"), dtype=np.float32) / 255.0
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ValueError(f"Unable to decode image for FFT preprocessing: {exc}") from exc
+    spectrum = fft_log_magnitude(gray, normalize=True)
+    if not np.isfinite(spectrum).all():
+        raise ValueError("FFT preprocessing produced non-finite values")
+    return np.repeat(spectrum[np.newaxis, :, :], 3, axis=0).astype(np.float32, copy=False)
 
 
 def save_fft_visualization(spectrum: np.ndarray, path: str | Path) -> None:

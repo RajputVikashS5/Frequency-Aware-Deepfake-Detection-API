@@ -353,34 +353,102 @@ required for this phase.
 
 ### Phase 4 --- RGB baseline
 
-**Status: planned unless a trained checkpoint and reproducible run
-exist.**
+**Status: implemented for CIFAKE; blocked for the unverified
+ForgeryNet/FaceForensics++ task.**
 
--   Implement a PyTorch image classifier using a documented backbone
-    such as ResNet18.
--   Train on training data and select checkpoints using validation
-    metrics.
--   Save configuration and experiment logs.
--   Verify checkpoint loading and single-image inference.
+Phase 4 uses two independent RGB-only ResNet-18 tasks:
+
+- ForgeryNet-derived still images: authentic (`real`, label `0`) versus
+  validated manipulated (`fake`, label `1`) frames. A valid
+  `frame-manifest.csv` with official source-video and manipulation metadata is
+  required before training.
+- CIFAKE: real images (`real`, label `0`) versus AI-generated images (`fake`,
+  label `1`). Its held-out `external-test.csv` is never used for training or
+  model selection.
+
+Run preflight without training:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v1 `
+  --output-dir experiments\rgb-baseline --preflight-only
+```
+
+Train a task with pretrained ImageNet ResNet-18 weights:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v1 `
+  --output-dir experiments\rgb-baseline --epochs 5 --batch-size 16 --seed 42
+```
+
+The command saves an independent checkpoint, configuration, history, and
+validation-selected test report under `experiments\rgb-baseline/`. Training
+uses 224 x 224 RGB inputs, ImageNet normalization, AdamW, deterministic seeds,
+and group-leakage/missing-image/duplicate preflight checks. The API remains
+diagnostic-only until a separately reviewed checkpoint is intentionally wired
+into inference. No FFT, fusion, video inference, or frontend changes are part
+of this phase.
 
 ### Phase 5 --- FFT preprocessing and baseline
 
-**Status: planned unless code and tests prove otherwise.**
+**Status: implemented for the CIFAKE task as a separate one-epoch CPU
+baseline; not completed for the blocked face-manipulation task.**
 
--   Implement deterministic 2D FFT preprocessing, `fftshift`, log
-    magnitude, and documented normalization.
--   Test output shape, finite values, and invalid inputs.
--   Train an FFT-only classifier using the same split policy.
--   Compare it with the RGB baseline.
+The FFT input contract is deterministic and separate from diagnostic
+visualizations: decode as RGB, convert to Pillow grayscale, resize to
+224 x 224, compute `fft2` and `fftshift`, apply `log1p(abs(fft))`, normalize
+each image to `[0, 1]`, and repeat the single channel three times for the
+standard ResNet-18 input. It uses the same CIFAKE manifests, seed, optimizer,
+split assignments, and metric definitions as the RGB baseline.
+
+Reproducible commands:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.fft_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fft-baseline\cifake-image-v2 --preflight-only
+
+.\.venv\Scripts\python.exe -m backend.training.fft_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fft-baseline\cifake-image-v2 `
+  --epochs 1 --batch-size 32 --seed 42
+```
+
+The measured one-epoch comparison is recorded in
+`experiments/fft-baseline/cifake-image-v2/comparison-report.json`. The RGB
+internal-test accuracy was 93.50%; the FFT internal-test accuracy was 85.45%.
+These are CPU smoke/baseline results, not tuned benchmark claims. The
+20-image CIFAKE external test remains evaluation-only. No FFT checkpoint is
+connected to the API.
 
 ### Phase 6 --- RGB + FFT fusion
 
-**Status: planned.**
+**Status: implemented for the CIFAKE task as a separate one-epoch CPU
+baseline; not completed for the blocked face-manipulation task.**
 
--   Implement both feature branches and a fusion classification head.
--   Verify tensor shapes and gradient flow.
--   Compare fusion against both baselines using the same evaluation
-    protocol.
+The fusion model uses two ResNet-18 branches. One receives the normalized
+224 x 224 RGB image and the other receives the deterministic FFT tensor from
+Phase 5. Their 512-dimensional features are concatenated and passed to a
+two-class linear head. A shared horizontal-flip decision keeps the two views
+aligned during training.
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.fusion_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fusion-baseline\cifake-image-v2 --preflight-only
+
+.\.venv\Scripts\python.exe -m backend.training.fusion_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fusion-baseline\cifake-image-v2 `
+  --epochs 1 --batch-size 32 --seed 42
+```
+
+Artifacts and the complete RGB/FFT/fusion comparison are written under
+`experiments\fusion-baseline\cifake-image-v2`. On the identical internal test
+split, the one-epoch accuracies were RGB 93.50%, FFT 85.45%, and fusion
+93.21%. These are baseline measurements, not tuned benchmark claims. The
+fusion model is not connected to FastAPI.
 
 ### Phase 7 --- Optional DWT extension
 
@@ -494,8 +562,30 @@ VITE_DEMO_MODE=true
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-Use the variable names actually configured in the project. Demo mode
 must be visibly labeled.
+
+### Backend Integration & Diagnostic Scope
+
+When running the frontend against the live Python FastAPI backend:
+
+1. **Environment Variables**:
+   In `frontend/.env`:
+   ```env
+   VITE_DEMO_MODE=false
+   VITE_API_BASE_URL=http://localhost:8000
+   VITE_ENABLE_AUTH=true
+   VITE_APP_NAME="ImageForensics AI"
+   ```
+
+2. **Start the FastAPI Backend**:
+   From the repository root with virtual environment activated:
+   ```powershell
+   python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+   ```
+   Check health at `http://127.0.0.1:8000/health` and OpenAPI docs at `http://127.0.0.1:8000/docs`.
+
+3. **Diagnostic-Only Scope**:
+   > **Note on Model Output**: In this phase, the `/api/v1/analyze` endpoint produces **raw diagnostic feature decompositions** (face crop, 2D Fourier FFT magnitude spectrum, 4-quadrant Haar wavelet DWT subbands, spatial ELA heatmap, and radial spectral energy decay profiles). **No deepfake classification verdict or model confidence score is computed.** The frontend explicitly displays a **Diagnostic Only** badge, shows the diagnostic disclaimer banner, and suppresses classifier score cards.
 
 ## Installation and run commands
 

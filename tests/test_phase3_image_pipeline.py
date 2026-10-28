@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from backend.app.dataset import scan_dataset, split_records
-from backend.app.frequency import fft_log_magnitude
+from backend.app.frequency import fft_log_magnitude, preprocess_fft
 from backend.app.preprocessing import Normalization, preprocess_rgb
 
 
@@ -88,6 +88,24 @@ def test_fft_shape_and_numerical_stability():
 def test_fft_rejects_invalid_input():
     with pytest.raises(ValueError, match="2D"):
         fft_log_magnitude(np.zeros((2, 2, 2, 2)))
+
+
+def test_fft_image_preprocessing_is_rgb_aware_deterministic_and_three_channel():
+    data = image_bytes()
+    first = preprocess_fft(data)
+    second = preprocess_fft(data)
+
+    assert first.shape == (3, 224, 224)
+    assert first.dtype == np.float32
+    assert np.isfinite(first).all()
+    assert np.array_equal(first, second)
+    assert np.array_equal(first[0], first[1])
+    assert 0 <= first.min() <= first.max() <= 1
+
+
+def test_fft_image_preprocessing_rejects_invalid_image_bytes():
+    with pytest.raises(ValueError, match="Unable to decode|empty"):
+        preprocess_fft(b"not an image")
 
 
 def test_group_aware_split_is_reproducible_and_has_no_group_leakage(tmp_path):

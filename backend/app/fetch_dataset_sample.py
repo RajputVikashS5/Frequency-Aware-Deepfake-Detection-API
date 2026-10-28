@@ -125,8 +125,8 @@ def fetch_sample(
 ) -> dict[str, object]:
     if dataset != "cifake":
         raise ValueError("This sample command supports CIFAKE only")
-    if not 1 <= per_label <= 10:
-        raise ValueError("--per-label must be between 1 and 10")
+    if not 1 <= per_label <= 5000:
+        raise ValueError("--per-label must be between 1 and 5000")
     if partition not in {"train", "test"}:
         raise ValueError("CIFAKE downloads require --partition train or test")
     output.mkdir(parents=True, exist_ok=True)

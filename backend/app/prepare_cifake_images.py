@@ -129,14 +129,20 @@ def _copy_partition(source: Path, destination: Path, limit: int) -> int:
     return count
 
 
-def _write_records(path: Path, records: list, *, external: bool = False) -> None:
+def _write_records(
+    path: Path,
+    records: list,
+    *,
+    split: str,
+    external: bool = False,
+) -> None:
     fields = ["path", "label_name", "label", "group_id", "sha256", "width", "height", "format", "split"]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for record in records:
             row = {field: getattr(record, field, "") for field in fields}
-            row["split"] = "external-test" if external else row["split"]
+            row["split"] = "external-test" if external else split
             writer.writerow(row)
 
 
@@ -184,8 +190,8 @@ def prepare_cifake(
     test_report = scan_dataset(test_root)
     splits = split_records(train_report.records, seed=seed)
     for name, records in splits.items():
-        _write_records(output / f"{name}.csv", records)
-    _write_records(output / "external-test.csv", test_report.records, external=True)
+        _write_records(output / f"{name}.csv", records, split=name)
+    _write_records(output / "external-test.csv", test_report.records, split="external-test", external=True)
     if source_metadata is not None:
         metadata = json.loads(source_metadata.read_text(encoding="utf-8"))
         required = ("name", "version", "source_url", "license_or_access_terms", "permitted_intended_use", "date_obtained")

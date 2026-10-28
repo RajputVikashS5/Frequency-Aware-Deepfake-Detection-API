@@ -54,6 +54,8 @@ class Settings:
     r2_endpoint_url: str = os.getenv("R2_ENDPOINT_URL", "")
     r2_forgerynet_prefix: str = os.getenv("R2_FORGERYNET_PREFIX", "forgerynet")
     r2_cifake_prefix: str = os.getenv("R2_CIFAKE_PREFIX", "CIfake")
+    model_checkpoint_path: str = os.getenv("MODEL_CHECKPOINT_PATH", "")
+    model_version: str = os.getenv("MODEL_VERSION", "")
 
     def __post_init__(self) -> None:
         if self.allowed_frontend_origins is None:

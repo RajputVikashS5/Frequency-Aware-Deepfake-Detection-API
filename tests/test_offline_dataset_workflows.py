@@ -147,7 +147,10 @@ def test_cifake_uppercase_labels_and_train_only_split(tmp_path):
     train_paths = set()
     for split in ("train", "val", "test"):
         with (output / f"{split}.csv").open(newline="", encoding="utf-8") as handle:
-            train_paths.update(row["path"] for row in csv.DictReader(handle))
+            rows = list(csv.DictReader(handle))
+            assert rows
+            assert {row["split"] for row in rows} == {split}
+            train_paths.update(row["path"] for row in rows)
     assert all("/test/" not in path.replace("\\", "/") for path in train_paths)
 
 

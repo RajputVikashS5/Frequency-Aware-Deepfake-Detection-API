@@ -11,18 +11,33 @@ export const appConfig = {
   // API Base URL for future FastAPI backend integration
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
 
-  // Feature toggles
+  // Feature toggles (support both naming conventions)
   enableAuth: import.meta.env.VITE_ENABLE_AUTH !== 'false',
+  authEnabled: import.meta.env.VITE_ENABLE_AUTH !== 'false',
 
   // File limits and validation rules
   maxFileSizeBytes: 10 * 1024 * 1024, // 10 Megabytes
+  maxFileSizeMb: 10,
   allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/bmp'],
   allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp'],
+
+  // Theme constants
+  theme: {
+    mode: 'dark',
+    palette: {
+      canvas: '#0b0f19',
+      card: '#111827',
+      primary: '#06b6d4',
+      accentBlue: '#3b82f6',
+      accentViolet: '#8b5cf6',
+    },
+  },
 
   // Local storage keys
   storageKeys: {
     history: 'imageforensics_local_history',
     sessionUser: 'imageforensics_demo_user',
+    authToken: 'imageforensics_demo_token',
   },
 
   // Privacy and research disclaimers
@@ -30,5 +45,8 @@ export const appConfig = {
     demoNotice: 'DEMO DATA — NOT AN ACTUAL MODEL PREDICTION',
     privacyNotice: 'Uploaded images are analyzed in-memory or locally. Raw images are not permanently stored.',
     researchNotice: 'Frequency-domain analysis provides probabilistic forensic indicators. It does not constitute legal proof of authenticity.',
+    diagnosticNotice: 'DIAGNOSTIC OUTPUT — NOT A VALIDATED MODEL PREDICTION',
   },
 };
+
+export const APP_CONFIG = appConfig;

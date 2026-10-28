@@ -118,6 +118,91 @@ Review generated manifests, provenance, exclusions, and split-integrity
 reports before any model training begins. No training, metrics, predictions,
 or checkpoints are created by these commands.
 
+## Phase 4 RGB baseline
+
+The RGB baseline has independent runs for ForgeryNet-derived still images and
+CIFAKE. It uses pretrained ImageNet ResNet-18 weights, 224 x 224 RGB inputs,
+ImageNet normalization, AdamW, deterministic seeds, validation checkpoint
+selection, and final test evaluation. Preflight checks missing/corrupt images,
+duplicate records, and source-group leakage.
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v1 `
+  --output-dir experiments\rgb-baseline --preflight-only
+
+.\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v1 `
+  --output-dir experiments\rgb-baseline --epochs 5 --batch-size 16 --seed 42
+
+.\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
+  --task forgerynet --manifest-dir data\metadata\forgerynet-images-v1 `
+  --source-frame-manifest data\raw\forgerynet-images-v1\frame-manifest.csv `
+  --output-dir experiments\rgb-baseline --epochs 5 --batch-size 16 --seed 42
+```
+
+ForgeryNet training requires the official source-video/manipulation mapping
+from `frame-manifest.csv`; filename-only inference is rejected. CIFAKE's
+`external-test.csv` is evaluation-only and is never used for training or
+model selection. Generated checkpoints, configurations, histories, and reports
+remain ignored artifacts. Review dataset provenance and split-integrity reports
+before using metrics.
+
+## Phase 5 FFT-only baseline
+
+The FFT baseline is implemented separately from the RGB baseline and does not
+change FastAPI or frontend behavior. Its input contract is:
+
+```text
+RGB decode -> Pillow grayscale -> resize 224x224 -> fft2 -> fftshift
+-> log1p(abs(fft)) -> per-image min-max [0, 1] -> repeat to 3 channels
+```
+
+It uses the same CIFAKE v2 manifests, label mapping, seed, optimizer, split
+assignments, validation checkpoint selection, and metric definitions as the
+RGB run. Diagnostic FFT images are not used as a substitute for model input.
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.fft_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fft-baseline\cifake-image-v2 --preflight-only
+
+.\.venv\Scripts\python.exe -m backend.training.fft_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fft-baseline\cifake-image-v2 `
+  --epochs 1 --batch-size 32 --seed 42
+```
+
+The report, history, configuration, checkpoint, and RGB-versus-FFT
+comparison are written under `experiments\fft-baseline\cifake-image-v2`.
+The observed one-epoch internal-test accuracies were 93.50% for RGB and
+85.45% for FFT on the identical CIFAKE split. ForgeryNet-derived training
+remains blocked until its actual dataset identity and official source-video
+mappings are verified.
+
+## Phase 6 RGB + FFT fusion
+
+The fusion baseline uses two ResNet-18 branches: one for normalized RGB and
+one for the Phase 5 FFT tensor. The two 512-dimensional feature vectors are
+concatenated into a two-class linear head. RGB and FFT views receive the same
+horizontal-flip decision so they remain aligned.
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.fusion_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fusion-baseline\cifake-image-v2 --preflight-only
+
+.\.venv\Scripts\python.exe -m backend.training.fusion_baseline `
+  --task cifake --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\fusion-baseline\cifake-image-v2 `
+  --epochs 1 --batch-size 32 --seed 42
+```
+
+The one-epoch internal-test accuracies were 93.50% RGB, 85.45% FFT, and
+93.21% fusion on the same split. See the fusion experiment directory for the
+checkpoint, configuration, history, report, and comparison report. This
+model remains training-only and is not connected to the API.
+
 ## API contract
 
 `POST /api/v1/analyze` accepts one multipart image field named `file`.
@@ -143,6 +228,23 @@ R2 settings are present for future dataset/checkpoint artifact storage only.
 `R2_ENABLED=false` by default, and the isolated R2 client is not connected to
 user image handling. No credentials are included and Phase A performs no R2
 uploads.
+
+## RGB baseline training and inference
+
+After an approved dataset's manifests pass validation, train a baseline locally:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.rgb_baseline `
+  --task cifake `
+  --manifest-dir data\metadata\cifake-image-v2 `
+  --output-dir experiments\rgb-cifake-v1 `
+  --epochs 5 --batch-size 32 --no-pretrained
+```
+
+Review the generated report before enabling inference. To load only the selected
+checkpoint, set `MODEL_CHECKPOINT_PATH` and `MODEL_VERSION` in `.env` and restart
+the API. The endpoint reports `inference_complete` only when this checkpoint loads
+successfully. Its `score` is an **uncalibrated** RGB-baseline probability.
 
 Run the read-only connectivity and dataset-prefix check after configuring
 `.env`:
@@ -174,7 +276,7 @@ forgerynet/: accessible
 CIfake/: accessible
 ```
 
-The controlled sample command is explicit and capped at ten images per label:
+The controlled sample command is explicit and capped at 5,000 images per label:
 
 ```powershell
 .\.venv\Scripts\python.exe -m backend.app.fetch_dataset_sample `

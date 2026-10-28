@@ -99,3 +99,18 @@ export function safeRevokeUrl(url) {
     }
   }
 }
+
+/**
+ * Reads an image into a data URL for the current browser session only.
+ * Callers must not persist the returned value to localStorage or a backend.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+export function readImageForSession(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('The selected image could not be prepared for preview.'));
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.readAsDataURL(file);
+  });
+}

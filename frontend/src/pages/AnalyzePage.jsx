@@ -7,7 +7,12 @@ import FileMetadata from '../components/upload/FileMetadata';
 import ValidationMessage from '../components/upload/ValidationMessage';
 import AnalysisProgress from '../components/upload/AnalysisProgress';
 import ErrorState from '../components/common/ErrorState';
-import { validateFile, validateImageDecoding, safeRevokeUrl } from '../utils/fileValidation';
+import {
+  validateFile,
+  validateImageDecoding,
+  safeRevokeUrl,
+  readImageForSession,
+} from '../utils/fileValidation';
 import { analysisService } from '../services/analysisService';
 import { appConfig } from '../config/appConfig';
 import { Shield, Lock, Play, ArrowRight, Sparkles } from 'lucide-react';
@@ -78,7 +83,11 @@ export default function AnalyzePage() {
     setAnalysisError(null);
 
     try {
-      const result = await analysisService.analyzeImage(selectedFile, previewUrl);
+      // Use an in-memory data URL for the active Results page. This is not
+      // persisted to history, so refreshes and older records keep the privacy
+      // boundary while the live result always has a displayable source image.
+      const sessionPreviewUrl = await readImageForSession(selectedFile);
+      const result = await analysisService.analyzeImage(selectedFile, sessionPreviewUrl);
       // Navigate to Results page with the analysis ID
       navigate(`/results/${result.id}`);
     } catch (err) {

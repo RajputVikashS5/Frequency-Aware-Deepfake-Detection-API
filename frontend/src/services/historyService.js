@@ -2,10 +2,13 @@ import { appConfig } from '../config/appConfig';
 
 /**
  * Service to manage local browser analysis history in localStorage.
- * Does not store large raw files to avoid exceeding storage quotas.
+ * Keeps records within storage quotas while preserving diagnostic context.
  */
 
 const STORAGE_KEY = appConfig.storageKeys.history;
+
+// In-memory session cache for full objects in active session
+const sessionCache = new Map();
 
 export const historyService = {
   /**
@@ -31,30 +34,46 @@ export const historyService = {
   saveAnalysis(analysisResult) {
     if (!analysisResult || !analysisResult.id) return;
 
+    // Cache full object in memory for active session
+    sessionCache.set(analysisResult.id, analysisResult);
+
     try {
       const current = this.getHistory();
-      // Filter out duplicate if ID already exists
       const filtered = current.filter((item) => item.id !== analysisResult.id);
 
-      // Sanitize record to prevent localStorage quota exhaustion
+      // Safe URL length guard for derived diagnostic visualizations only.
+      // Source uploads are deliberately excluded from persistent browser history.
+      const safeDataUri = (url) => (typeof url === 'string' && url.length < 200000 ? url : '');
+
       const record = {
         id: analysisResult.id,
         timestamp: analysisResult.timestamp || new Date().toISOString(),
         filename: analysisResult.metadata?.filename || 'Untitled Image',
         fileSize: analysisResult.metadata?.fileSize || 0,
-        verdict: analysisResult.verdict,
+        verdict: analysisResult.verdict || (analysisResult.isDiagnostic ? 'Diagnostic Complete' : 'Analyzed'),
         isManipulated: analysisResult.isManipulated,
         confidencePct: analysisResult.confidencePct,
-        scores: analysisResult.scores,
+        scores: analysisResult.scores || null,
         isDemo: Boolean(analysisResult.isDemo),
         isDiagnostic: Boolean(analysisResult.isDiagnostic),
-        // Keep visualization thumbnails only if under safe size limit
-        fftSpectrumUrl: analysisResult.visualizations?.fftSpectrumUrl || '',
-        originalPreviewUrl:
-          typeof analysisResult.visualizations?.originalPreviewUrl === 'string' &&
-          analysisResult.visualizations.originalPreviewUrl.length < 300000
-            ? analysisResult.visualizations.originalPreviewUrl
-            : '',
+        disclaimer: analysisResult.disclaimer || '',
+        diagnosticMessage: analysisResult.diagnosticMessage || '',
+        findings: Array.isArray(analysisResult.findings) ? analysisResult.findings : [],
+        modelVersion: analysisResult.modelVersion || '',
+        status: analysisResult.status || '',
+        scoreType: analysisResult.scoreType || '',
+        metadata: analysisResult.metadata || {
+          filename: 'Untitled Image',
+          fileSize: 0,
+        },
+        visualizations: {
+          originalPreviewUrl: '',
+          fftSpectrumUrl: safeDataUri(analysisResult.visualizations?.fftSpectrumUrl),
+          dwtSubbandsUrl: safeDataUri(analysisResult.visualizations?.dwtSubbandsUrl),
+          faceCropUrl: safeDataUri(analysisResult.visualizations?.faceCropUrl),
+          spatialHeatmapUrl: safeDataUri(analysisResult.visualizations?.spatialHeatmapUrl),
+        },
+        spectralProfile: Array.isArray(analysisResult.spectralProfile) ? analysisResult.spectralProfile : [],
       };
 
       const updated = [record, ...filtered].slice(0, 50); // Keep max 50 records
@@ -71,6 +90,9 @@ export const historyService = {
    */
   getAnalysisById(id) {
     if (!id) return null;
+    if (sessionCache.has(id)) {
+      return sessionCache.get(id);
+    }
     const items = this.getHistory();
     return items.find((item) => item.id === id) || null;
   },
@@ -81,6 +103,7 @@ export const historyService = {
    */
   deleteAnalysis(id) {
     if (!id) return;
+    sessionCache.delete(id);
     try {
       const current = this.getHistory();
       const updated = current.filter((item) => item.id !== id);
@@ -94,6 +117,7 @@ export const historyService = {
    * Clears the entire local history.
    */
   clearAllHistory() {
+    sessionCache.clear();
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch (e) {
@@ -112,15 +136,13 @@ export const historyService = {
     const q = query.trim().toLowerCase();
 
     return list.filter((item) => {
-      // 1. Text search
       const matchesQuery = !q || (item.filename && item.filename.toLowerCase().includes(q));
 
-      // 2. Verdict filter
       let matchesFilter = true;
       if (filter === 'real') {
-        matchesFilter = !item.isManipulated;
+        matchesFilter = item.isManipulated === false;
       } else if (filter === 'manipulated') {
-        matchesFilter = item.isManipulated;
+        matchesFilter = item.isManipulated === true;
       }
 
       return matchesQuery && matchesFilter;

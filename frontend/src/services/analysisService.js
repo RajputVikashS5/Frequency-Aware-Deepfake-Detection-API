@@ -29,18 +29,21 @@ export const analysisService = {
         });
 
         const raw = response.data;
-        // Diagnostics are deliberately not mapped into classification fields.
+        const inferenceAvailable = raw.inference_available === true;
+        const isManipulated = raw.prediction === 'likely_manipulated';
         result = {
           id: `srv-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           timestamp: new Date().toISOString(),
           processingTimeMs: null,
           isDemo: false,
-          isDiagnostic: raw.status === 'diagnostic_complete',
-          disclaimer: 'DIAGNOSTIC OUTPUT — NOT A VALIDATED MODEL PREDICTION',
-          verdict: 'Diagnostic inspection complete',
-          isManipulated: null,
-          confidencePct: null,
-          scoreType: 'No classifier score available',
+          isDiagnostic: !inferenceAvailable,
+          disclaimer: inferenceAvailable
+            ? 'EXPERIMENTAL RGB BASELINE — UNCALIBRATED MODEL OUTPUT'
+            : 'DIAGNOSTIC OUTPUT — NOT A VALIDATED MODEL PREDICTION',
+          verdict: inferenceAvailable ? (isManipulated ? 'Likely Manipulated' : 'Likely Real') : 'Diagnostic inspection complete',
+          isManipulated: inferenceAvailable ? isManipulated : null,
+          confidencePct: inferenceAvailable && typeof raw.score === 'number' ? raw.score * 100 : null,
+          scoreType: raw.score_type || 'No classifier score available',
           scores: null,
           metadata: {
             filename: file.name,
@@ -59,7 +62,7 @@ export const analysisService = {
           findings: raw.findings || [],
           modelVersion: raw.model_version,
           status: raw.status,
-          inferenceAvailable: raw.inference_available,
+          inferenceAvailable,
           diagnosticMessage: raw.message,
         };
       } catch (err) {

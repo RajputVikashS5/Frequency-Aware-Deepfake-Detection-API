@@ -163,8 +163,15 @@ export async function analyzeInDemoMode(file, previewUrl) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     await new Promise((resolve) => {
-      img.onload = resolve;
-      img.onerror = resolve;
+      const timer = setTimeout(resolve, 600);
+      img.onload = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        resolve();
+      };
       img.src = previewUrl;
     });
     visualizations = generateCanvasVisualizations(img, isManipulated);
