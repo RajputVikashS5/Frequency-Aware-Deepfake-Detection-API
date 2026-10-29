@@ -6,7 +6,7 @@ import base64
 import hashlib
 import io
 import logging
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
 import cv2
 import numpy as np
@@ -14,6 +14,13 @@ from PIL import Image
 import pywt
 
 logger = logging.getLogger(__name__)
+
+# Constants for ELA enhancement
+ELA_ENHANCEMENT_FACTOR = 18
+ELA_WEIGHT = 0.6
+LAPLACIAN_WEIGHT = 0.4
+HEATMAP_BLEND_WEIGHT = 0.65
+FACE_BLEND_WEIGHT = 0.35
 
 
 def decode_image(file_bytes: bytes) -> np.ndarray:
@@ -23,9 +30,14 @@ def decode_image(file_bytes: bytes) -> np.ndarray:
     if img is None:
         raise ValueError("Invalid image file: could not decode image format.")
     return img
+    nparr = np.frombuffer(file_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Invalid image file: could not decode image format.")
+    return img
 
 
-def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, dict[str, int]]:
+def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, Dict[str, int]]:
     """Detect frontal face and crop with margin. Falls back to center crop."""
     h, w = bgr_img.shape[:2]
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
@@ -66,7 +78,7 @@ def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, dict[st
     return crop_resized, False, bbox
 
 
-def compute_fft_spectrum(gray_face: np.ndarray) -> tuple[np.ndarray, list[dict[str, Any]]]:
+def compute_fft_spectrum(gray_face: np.ndarray) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
     """Compute centered 2D Fourier log magnitude spectrum and radial profile."""
     h, w = gray_face.shape
     f = np.fft.fft2(gray_face.astype(np.float32))
@@ -99,6 +111,7 @@ def compute_fft_spectrum(gray_face: np.ndarray) -> tuple[np.ndarray, list[dict[s
 
 def compute_dwt_subbands(gray_face: np.ndarray) -> np.ndarray:
     """Compute 2D Haar Discrete Wavelet Transform and return 2x2 tiled subbands."""
+    """Compute 2D Haar Discrete Wavelet Transform and return 2x2 tiled subbands."""
     face_float = gray_face.astype(np.float32) / 255.0
     coeffs2 = pywt.dwt2(face_float, "haar")
     LL, (LH, HL, HH) = coeffs2
@@ -127,6 +140,7 @@ def compute_dwt_subbands(gray_face: np.ndarray) -> np.ndarray:
 
 def compute_spatial_analysis(bgr_face: np.ndarray) -> np.ndarray:
     """Compute Error Level Analysis (ELA) and boundary gradient heatmap."""
+    h, w = bgr_face.shape[:2]
     # 1. Error Level Analysis (JPEG re-compression error)
     pil_img = Image.fromarray(cv2.cvtColor(bgr_face, cv2.COLOR_BGR2RGB))
     buffer = io.BytesIO()
@@ -136,7 +150,7 @@ def compute_spatial_analysis(bgr_face: np.ndarray) -> np.ndarray:
 
     ela = cv2.absdiff(bgr_face, recompressed)
     ela_gray = cv2.cvtColor(ela, cv2.COLOR_BGR2GRAY)
-    ela_enhanced = cv2.multiply(ela_gray, 18)
+    ela_enhanced = cv2.multiply(ela_gray, ELA_ENHANCEMENT_FACTOR)
 
     # 2. High-pass boundary gradient
     laplacian = cv2.Laplacian(cv2.cvtColor(bgr_face, cv2.COLOR_BGR2GRAY), cv2.CV_32F)
@@ -144,16 +158,17 @@ def compute_spatial_analysis(bgr_face: np.ndarray) -> np.ndarray:
     lap_norm = cv2.normalize(lap_abs, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
     # Combine ELA and boundary map
-    combined = cv2.addWeighted(ela_enhanced, 0.6, lap_norm, 0.4, 0)
+    combined = cv2.addWeighted(ela_enhanced, ELA_WEIGHT, lap_norm, LAPLACIAN_WEIGHT, 0)
     colored_map = cv2.applyColorMap(combined, cv2.COLORMAP_TURBO)
 
-    # Blend 60% heatmap with 40% face
-    blended = cv2.addWeighted(colored_map, 0.65, bgr_face, 0.35, 0)
+    # Blend heatmap with face
+    blended = cv2.addWeighted(colored_map, HEATMAP_BLEND_WEIGHT, bgr_face, FACE_BLEND_WEIGHT, 0)
 
     return blended
 
 
 def image_to_base64_data_uri(img_bgr: np.ndarray, format_ext: str = ".jpg") -> str:
+    """Encode BGR image to base64 Data URI."""
     """Encode BGR image to base64 Data URI."""
     success, buffer = cv2.imencode(format_ext, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
     if not success:
@@ -163,7 +178,7 @@ def image_to_base64_data_uri(img_bgr: np.ndarray, format_ext: str = ".jpg") -> s
     return f"data:{mime};base64,{b64_str}"
 
 
-def analyze_image_bytes(file_bytes: bytes, filename: str) -> dict[str, Any]:
+def analyze_image_bytes(file_bytes: bytes, filename: str) -> Dict[str, Any]:
     """Execute complete multi-modal forensic inspection on an uploaded image."""
     bgr_img = decode_image(file_bytes)
     h, w = bgr_img.shape[:2]

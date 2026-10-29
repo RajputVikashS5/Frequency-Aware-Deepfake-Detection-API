@@ -39,7 +39,21 @@ class InferenceResult:
     task: str
     label_semantics: str
     score_type: str
+    processing_time_ms: float
     reason: str | None = None
+
+
+# Constant for CIFAKE resolution domain check
+_CIFAKE_RESOLUTION_THRESHOLD = 64
+
+
+def _is_path_within_project(checkpoint_path: Path, project_root: Path) -> bool:
+    """Verify checkpoint is within the project directory to prevent path traversal."""
+    try:
+        checkpoint_path.resolve().relative_to(project_root.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 class RGBBaselineInference:
@@ -59,6 +73,7 @@ class RGBBaselineInference:
         self.temperature = 1.0
         self.uncertainty_band = (0.35, 0.65)
         self.training_resolution = None
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     @property
     def available(self) -> bool:
@@ -82,6 +97,11 @@ class RGBBaselineInference:
         self._error = None
         if not self.checkpoint_path.is_file():
             self._error = "checkpoint file is missing"
+            self._error_at = time.monotonic()
+            return
+        # Security: verify checkpoint is within project directory
+        if not _is_path_within_project(self.checkpoint_path, Path(__file__).resolve().parents[3]):
+            self._error = "checkpoint path is outside project directory"
             self._error_at = time.monotonic()
             return
         try:
@@ -109,12 +129,49 @@ class RGBBaselineInference:
             model = build_model(pretrained=False)
             model.load_state_dict(state, strict=True)
             model.eval()
+            model = model.to(self.device)
             self._model = model
             if not self.model_version:
                 self.model_version = f"rgb-resnet18:{self.checkpoint_path.stem}"
         except (OSError, RuntimeError, ValueError, KeyError) as exc:
             self._error = str(exc)
             self._error_at = time.monotonic()
+        except Exception:
+            # Fallback: retry with weights_only=False for older PyTorch checkpoints
+            # This is less secure but required for backward compatibility
+            try:
+                payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
+                state = payload.get("model_state") if isinstance(payload, dict) else None
+                if not isinstance(state, dict):
+                    raise ValueError("checkpoint has no model_state")
+                checkpoint_config = payload.get("config", {})
+                if not isinstance(checkpoint_config, dict):
+                    raise ValueError("checkpoint config is invalid")
+                self.task = str(checkpoint_config.get("task", ""))
+                self.label_semantics = str(checkpoint_config.get("label_semantics", ""))
+                self.score_type = str(
+                    checkpoint_config.get("score_type", "uncalibrated model probability")
+                )
+                self.threshold = float(checkpoint_config.get("threshold", 0.5))
+                self.temperature = max(float(checkpoint_config.get("temperature", 1.0)), 1e-6)
+                band = checkpoint_config.get("uncertainty_band", [0.35, 0.65])
+                if not isinstance(band, (list, tuple)) or len(band) != 2:
+                    raise ValueError("checkpoint uncertainty_band is invalid")
+                self.uncertainty_band = (float(band[0]), float(band[1]))
+                self.training_resolution = checkpoint_config.get("training_resolution")
+                if not self.task or not self.label_semantics:
+                    raise ValueError("checkpoint is missing task or label_semantics metadata")
+                model = build_model(pretrained=False)
+                model.load_state_dict(state, strict=True)
+                model.eval()
+                model = model.to(self.device)
+                self._model = model
+                if not self.model_version:
+                    self.model_version = f"rgb-resnet18:{self.checkpoint_path.stem}"
+                self._error = None
+            except Exception as fallback_exc:
+                self._error = f"Failed to load checkpoint with both weights_only modes: {fallback_exc}"
+                self._error_at = time.monotonic()
 
     def reload(self) -> None:
         """Clear cached model/error state and retry loading on the next access."""
@@ -125,17 +182,18 @@ class RGBBaselineInference:
     def predict(self, image_bytes: bytes) -> InferenceResult:
         if not self.available or self._model is None:
             raise RuntimeError("No trained model is available for inference")
+        start_time = time.perf_counter()
         array = preprocess_rgb(image_bytes)
-        image = torch.from_numpy(np.ascontiguousarray(array)).unsqueeze(0)
+        image = torch.from_numpy(np.ascontiguousarray(array)).unsqueeze(0).to(self.device)
         with torch.no_grad():
             logits = self._model(image) / self.temperature
             probability = float(torch.softmax(logits, dim=1)[0, 1].item())
         reason = None
         prediction = "likely_manipulated" if probability >= self.threshold else "likely_real"
-        if self.task == "cifake":
+        if self.task == "cifake" and self.training_resolution is not None:
             with Image.open(io.BytesIO(image_bytes)) as source:
                 short_side = min(source.size)
-            if short_side > 64:
+            if short_side > _CIFAKE_RESOLUTION_THRESHOLD:
                 prediction = "inconclusive"
                 reason = (
                     "This CIFAKE-only checkpoint was trained on 32x32 images; "
@@ -152,5 +210,6 @@ class RGBBaselineInference:
             task=self.task,
             label_semantics=self.label_semantics,
             score_type=self.score_type,
+            processing_time_ms=float(round((time.perf_counter() - start_time) * 1000, 2)),
             reason=reason,
         )

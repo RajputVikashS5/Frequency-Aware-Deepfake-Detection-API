@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import os
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -30,12 +32,28 @@ ALLOWED_CONTENT_TYPES = {
     "image/bmp": {"BMP"},
 }
 
+# Sanitize filename: remove path components and keep only safe filename characters
+_FILENAME_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9._-]")
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Remove path traversal characters and keep only safe filename characters."""
+    # First, take only the basename (removes any directory components)
+    basename = os.path.basename(filename)
+    # Remove any remaining unsafe characters
+    safe = _FILENAME_SANITIZE_RE.sub("_", basename)
+    # Ensure we don't end up with an empty filename
+    if not safe or safe in (".", ".."):
+        return "uploaded_image"
+    return safe
+
 app = FastAPI(
     title="SpectraGuard: Frequency-Aware Image Deepfake Detection API",
     version="1.0.0",
-    description="Diagnostic spatial, Fourier, and wavelet inspection for images. No trained classifier is loaded.",
+    description="Frequency-aware image deepfake detection API with diagnostic spatial, Fourier, and wavelet analysis.",
 )
-inference_model = RGBBaselineInference(settings.model_checkpoint_path, settings.model_version)
+# Phase 9: Load verified model checkpoint if configured
+inference_model = RGBBaselineInference(settings.model_checkpoint_path, settings.model_version) if settings.model_checkpoint_path else RGBBaselineInference("", "")
 
 app.add_middleware(
     CORSMiddleware,
@@ -100,12 +118,16 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
     content = await file.read(settings.max_upload_bytes + 1)
     _validate_image(content, file.content_type or "")
     try:
-        diagnostic = analyze_image_bytes(content, file.filename)
+        diagnostic = analyze_image_bytes(content, _sanitize_filename(file.filename))
     except (OSError, ValueError, UnidentifiedImageError, cv2.error) as exc:
         raise HTTPException(status_code=400, detail=f"Unable to analyze image: {exc}") from exc
 
+    # Phase 9: Real model inference integration
     prediction = score = model_version = score_type = None
+    checkpoint_task = label_semantics = domain_warning = None
+    processing_time_ms = None
     inference_available = inference_model.available
+
     if inference_available:
         result = await run_in_threadpool(inference_model.predict, content)
         checkpoint_task = result.task
@@ -118,6 +140,7 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         )
         score = result.score if result.task != "cifake" else None
         model_version = result.model_version
+        processing_time_ms = result.processing_time_ms
         status = "inference_complete"
         domain_warning = result.reason
         if result.task == "cifake" and domain_warning is None:
@@ -134,7 +157,8 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         status = "diagnostic_complete"
         message = (
             "Diagnostic FFT, DWT, ELA, and face-crop outputs are available. "
-            "No trained or calibrated deepfake classifier is loaded; these diagnostics are not a deepfake classification."
+            f"No trained model is loaded ({inference_model.status_message}). "
+            "These diagnostics are not a deepfake classification."
         )
 
     return AnalysisResponse(
@@ -147,6 +171,7 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         checkpoint_task=checkpoint_task,
         label_semantics=label_semantics,
         domain_warning=domain_warning,
+        processing_time_ms=processing_time_ms,
         message=message,
         metadata=diagnostic["metadata"],
         visualizations=diagnostic["visualizations"],

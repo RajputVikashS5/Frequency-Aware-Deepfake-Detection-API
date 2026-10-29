@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def _load_dotenv() -> None:
@@ -34,9 +35,20 @@ def _bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _validate_origin(origin: str) -> str:
+    """Validate that an origin is a properly formatted URL with a scheme and host."""
+    origin = origin.strip()
+    if not origin:
+        return origin
+    parsed = urlparse(origin)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"Invalid CORS origin: {origin!r} (must have scheme and host)")
+    return origin
+
+
 def _origins() -> list[str]:
     configured = os.getenv("ALLOWED_FRONTEND_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [_validate_origin(origin) for origin in configured.split(",") if origin.strip()]
 
 
 @dataclass(frozen=True)
@@ -62,6 +74,21 @@ class Settings:
     def __post_init__(self) -> None:
         if self.allowed_frontend_origins is None:
             object.__setattr__(self, "allowed_frontend_origins", _origins())
+        # Validate numeric limits
+        if self.max_upload_bytes <= 0:
+            raise ValueError("MAX_UPLOAD_BYTES must be a positive integer")
+        if self.max_image_width <= 0 or self.max_image_height <= 0:
+            raise ValueError("MAX_IMAGE_WIDTH and MAX_IMAGE_HEIGHT must be positive integers")
+        if self.max_image_pixels <= 0:
+            raise ValueError("MAX_IMAGE_PIXELS must be a positive integer")
+        # Validate R2 configuration consistency
+        if self.r2_enabled:
+            if not self.r2_account_id or not self.r2_bucket:
+                raise ValueError("R2_ENABLED=true requires R2_ACCOUNT_ID and R2_BUCKET")
+            if not self.r2_access_key_id or not self.r2_secret_access_key:
+                raise ValueError("R2_ENABLED=true requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY")
+            if not self.r2_endpoint_url:
+                raise ValueError("R2_ENABLED=true requires R2_ENDPOINT_URL")
 
 
 settings = Settings()
