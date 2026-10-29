@@ -31,9 +31,10 @@ ALLOWED_CONTENT_TYPES = {
 app = FastAPI(
     title="SpectraGuard: Frequency-Aware Image Deepfake Detection API",
     version="1.0.0",
-    description="Diagnostic spatial, Fourier, and wavelet inspection for images. No trained classifier is loaded.",
+    description="Phase 9: Real model inference with diagnostic spatial, Fourier, and wavelet analysis.",
 )
-inference_model = RGBBaselineInference(settings.model_checkpoint_path, settings.model_version)
+# Phase 9: Load verified model checkpoint if configured
+inference_model = RGBBaselineInference(settings.model_checkpoint_path, settings.model_version) if settings.model_checkpoint_path else RGBBaselineInference("", "")
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,22 +103,38 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
     except (OSError, ValueError, UnidentifiedImageError) as exc:
         raise HTTPException(status_code=400, detail=f"Unable to analyze image: {exc}") from exc
 
+    # Phase 9: Real model inference integration
     prediction = score = model_version = score_type = None
+    checkpoint_task = label_semantics = domain_warning = None
+    processing_time_ms = None
     inference_available = inference_model.available
+
     if inference_available:
+        # Run real model inference
         result = inference_model.predict(content)
-        prediction, score, model_version = result.prediction, result.score, result.model_version
-        score_type = "Uncalibrated RGB baseline manipulation probability"
+        prediction = result.prediction
+        score = result.score
+        model_version = result.model_version
+        score_type = result.score_type
+        checkpoint_task = result.task
+        label_semantics = result.label_semantics
+        processing_time_ms = result.processing_time_ms
+
+        if result.reason:
+            domain_warning = result.reason
+
         status = "inference_complete"
         message = (
-            "Experimental RGB baseline inference completed. The score is an uncalibrated model probability, "
-            "not proof of authenticity or manipulation."
+            f"Phase 9: Real model inference completed using {model_version}. "
+            f"Score is {score_type}, not a calibrated probability. "
+            f"Prediction: {prediction}. This is experimental and not proof of authenticity or manipulation."
         )
     else:
         status = "diagnostic_complete"
         message = (
-            "Diagnostic FFT, DWT, ELA, and face-crop outputs are available. "
-            "No trained or calibrated deepfake classifier is loaded; these diagnostics are not a deepfake classification."
+            "Phase 9: Diagnostic FFT, DWT, ELA, and face-crop outputs are available. "
+            f"No trained model is loaded ({inference_model.status_message}). "
+            "These diagnostics are not a deepfake classification."
         )
 
     return AnalysisResponse(
@@ -128,6 +145,10 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         score_type=score_type,
         calibrated=False,
         model_version=model_version,
+        checkpoint_task=checkpoint_task,
+        label_semantics=label_semantics,
+        domain_warning=domain_warning,
+        processing_time_ms=processing_time_ms,
         message=message,
         metadata=diagnostic["metadata"],
         visualizations=diagnostic["visualizations"],

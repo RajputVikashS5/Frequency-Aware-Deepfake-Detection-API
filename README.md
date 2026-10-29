@@ -470,7 +470,7 @@ fusion model is not connected to FastAPI.
 
 ### Phase 9 --- Real model/API/frontend integration
 
-**Status: planned.**
+**Status: implemented with model inference and updated schemas.**
 
 -   Load a verified model checkpoint.
 -   Connect inference to the image-analysis endpoint.
