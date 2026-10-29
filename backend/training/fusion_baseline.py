@@ -32,16 +32,18 @@ from backend.training.rgb_baseline import (
     json_safe_config,
     make_loader,
     json_safe_value,
+    apply_training_degradation,
 )
 
 
 class FusionManifestDataset(Dataset[tuple[torch.Tensor, torch.Tensor, int, str, str]]):
     """Create aligned RGB and FFT views from the same source image."""
 
-    def __init__(self, rows: list[ManifestRow], manifest_dir: Path, *, training: bool = False):
+    def __init__(self, rows: list[ManifestRow], manifest_dir: Path, *, training: bool = False, augment_degradation: bool = False):
         self.rows = rows
         self.manifest_dir = manifest_dir
         self.training = training
+        self.augment_degradation = augment_degradation
         self.normalization = Normalization()
 
     def __len__(self) -> int:
@@ -53,6 +55,7 @@ class FusionManifestDataset(Dataset[tuple[torch.Tensor, torch.Tensor, int, str, 
         try:
             with Image.open(path) as source:
                 image = source.convert("RGB")
+            image = apply_training_degradation(image, self.augment_degradation and self.training)
             image = image.resize((224, 224), Image.Resampling.BILINEAR)
             if self.training and random.random() < 0.5:
                 image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -113,7 +116,12 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     model = RGBFFTFusionModel(config.pretrained).to(device)
     loaders = {
         name:         make_loader(
-            FusionManifestDataset(split_rows, config.manifest_dir, training=name == "train"),
+            FusionManifestDataset(
+                split_rows,
+                config.manifest_dir,
+                training=name == "train",
+                augment_degradation=config.augment_degradation,
+            ),
             config,
             shuffle=name == "train",
         )
@@ -209,6 +217,7 @@ def main() -> int:
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--source-frame-manifest", type=Path)
+    parser.add_argument("--augment-degradation", action="store_true")
     args = parser.parse_args()
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
@@ -216,6 +225,7 @@ def main() -> int:
         weight_decay=args.weight_decay, num_workers=args.num_workers,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
+        augment_degradation=args.augment_degradation,
     )
     try:
         if args.preflight_only:

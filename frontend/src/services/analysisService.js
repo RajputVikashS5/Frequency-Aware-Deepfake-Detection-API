@@ -31,6 +31,7 @@ export const analysisService = {
         const raw = response.data;
         const inferenceAvailable = raw.inference_available === true;
         const isManipulated = raw.prediction === 'likely_manipulated';
+        const isInconclusive = raw.prediction === 'inconclusive';
         result = {
           id: `srv-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           timestamp: new Date().toISOString(),
@@ -40,8 +41,11 @@ export const analysisService = {
           disclaimer: inferenceAvailable
             ? 'EXPERIMENTAL RGB BASELINE — UNCALIBRATED MODEL OUTPUT'
             : 'DIAGNOSTIC OUTPUT — NOT A VALIDATED MODEL PREDICTION',
-          verdict: inferenceAvailable ? (isManipulated ? 'Likely Manipulated' : 'Likely Real') : 'Diagnostic inspection complete',
-          isManipulated: inferenceAvailable ? isManipulated : null,
+          verdict: inferenceAvailable
+            ? (isInconclusive ? 'Inconclusive' : (isManipulated ? 'Likely Manipulated' : 'Likely Real'))
+            : 'Diagnostic inspection complete',
+          isManipulated: inferenceAvailable && !isInconclusive ? isManipulated : null,
+          isInconclusive,
           confidencePct: inferenceAvailable && typeof raw.score === 'number' ? raw.score * 100 : null,
           scoreType: raw.score_type || 'No classifier score available',
           scores: null,
@@ -61,6 +65,9 @@ export const analysisService = {
           spectralProfile: raw.spectral_profile || [],
           findings: raw.findings || [],
           modelVersion: raw.model_version,
+          checkpointTask: raw.checkpoint_task,
+          labelSemantics: raw.label_semantics,
+          domainWarning: raw.domain_warning,
           status: raw.status,
           inferenceAvailable,
           diagnosticMessage: raw.message,

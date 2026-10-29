@@ -65,7 +65,10 @@ export default function HistoryTable({ records, onDeleteItem }) {
                   {item.isDiagnostic ? (
                     <span className="text-xs font-mono text-amber-300">Diagnostics only</span>
                   ) : (
-                    <PredictionBadge isManipulated={item.isManipulated} />
+                    <PredictionBadge
+                      isManipulated={item.isManipulated}
+                      isInconclusive={item.isInconclusive}
+                    />
                   )}
                 </td>
 

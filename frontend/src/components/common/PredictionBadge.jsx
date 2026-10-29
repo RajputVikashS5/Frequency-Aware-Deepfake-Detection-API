@@ -1,8 +1,21 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 
-export default function PredictionBadge({ isManipulated, size = 'default' }) {
+export default function PredictionBadge({ isManipulated, isInconclusive = false, size = 'default' }) {
   const isLarge = size === 'large';
+
+  if (isInconclusive) {
+    return (
+      <span className={`inline-flex items-center space-x-1.5 font-semibold rounded-md border ${
+        isLarge
+          ? 'px-3.5 py-1.5 text-sm bg-slate-800/60 text-slate-200 border-slate-600/80'
+          : 'px-2.5 py-0.5 text-xs bg-slate-800/50 text-slate-200 border-slate-600/60'
+      }`}>
+        <span aria-hidden="true">?</span>
+        <span>Inconclusive</span>
+      </span>
+    );
+  }
 
   if (isManipulated) {
     return (

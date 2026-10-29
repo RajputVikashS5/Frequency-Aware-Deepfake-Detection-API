@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 import time
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image
 
 # Ensure repository root and backend directory are on sys.path
 _repo_root = str(Path(__file__).resolve().parents[2])
@@ -37,6 +39,7 @@ class InferenceResult:
     task: str
     label_semantics: str
     score_type: str
+    reason: str | None = None
 
 
 class RGBBaselineInference:
@@ -52,6 +55,10 @@ class RGBBaselineInference:
         self.label_semantics = ""
         self.score_type = ""
         self._error_retry_seconds = 10.0
+        self.threshold = 0.5
+        self.temperature = 1.0
+        self.uncertainty_band = (0.35, 0.65)
+        self.training_resolution = None
 
     @property
     def available(self) -> bool:
@@ -90,6 +97,13 @@ class RGBBaselineInference:
             self.score_type = str(
                 checkpoint_config.get("score_type", "uncalibrated model probability")
             )
+            self.threshold = float(checkpoint_config.get("threshold", 0.5))
+            self.temperature = max(float(checkpoint_config.get("temperature", 1.0)), 1e-6)
+            band = checkpoint_config.get("uncertainty_band", [0.35, 0.65])
+            if not isinstance(band, (list, tuple)) or len(band) != 2:
+                raise ValueError("checkpoint uncertainty_band is invalid")
+            self.uncertainty_band = (float(band[0]), float(band[1]))
+            self.training_resolution = checkpoint_config.get("training_resolution")
             if not self.task or not self.label_semantics:
                 raise ValueError("checkpoint is missing task or label_semantics metadata")
             model = build_model(pretrained=False)
@@ -114,12 +128,29 @@ class RGBBaselineInference:
         array = preprocess_rgb(image_bytes)
         image = torch.from_numpy(np.ascontiguousarray(array)).unsqueeze(0)
         with torch.no_grad():
-            probability = float(torch.softmax(self._model(image), dim=1)[0, 1].item())
+            logits = self._model(image) / self.temperature
+            probability = float(torch.softmax(logits, dim=1)[0, 1].item())
+        reason = None
+        prediction = "likely_manipulated" if probability >= self.threshold else "likely_real"
+        if self.task == "cifake":
+            with Image.open(io.BytesIO(image_bytes)) as source:
+                short_side = min(source.size)
+            if short_side > 64:
+                prediction = "inconclusive"
+                reason = (
+                    "This CIFAKE-only checkpoint was trained on 32x32 images; "
+                    "the uploaded image is outside that resolution domain."
+                )
+        low, high = self.uncertainty_band
+        if low <= probability <= high:
+            prediction = "inconclusive"
+            reason = "The calibrated model score is inside its configured uncertainty band."
         return InferenceResult(
-            prediction="likely_manipulated" if probability >= 0.5 else "likely_real",
+            prediction=prediction,
             score=probability,
             model_version=self.model_version,
             task=self.task,
             label_semantics=self.label_semantics,
             score_type=self.score_type,
+            reason=reason,
         )

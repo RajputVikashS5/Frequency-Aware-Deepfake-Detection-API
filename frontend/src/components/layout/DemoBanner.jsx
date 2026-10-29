@@ -20,10 +20,13 @@ export default function DemoBanner({ isDiagnostic = false, message = null }) {
       <div className="max-w-7xl mx-auto flex items-center justify-center space-x-2 flex-wrap">
         <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
         <span className="font-semibold text-amber-300 uppercase tracking-wider font-mono text-[11px]">
-          {isDiagnostic && !appConfig.isDemoMode ? 'Diagnostic Mode:' : 'Demo Mode:'}
+          {appConfig.isDemoMode ? 'DEMO MODE:' : 'LIVE API MODE:'}
         </span>
         <span className="text-slate-300 text-[11px]">
           {message || defaultText}
+        </span>
+        <span className="text-slate-400 text-[11px] font-mono">
+          Model: {appConfig.isDemoMode ? 'none (demo)' : 'reported by API'}
         </span>
       </div>
     </aside>

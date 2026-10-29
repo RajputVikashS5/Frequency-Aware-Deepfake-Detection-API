@@ -52,6 +52,7 @@ export const historyService = {
         fileSize: analysisResult.metadata?.fileSize || 0,
         verdict: analysisResult.verdict || (analysisResult.isDiagnostic ? 'Diagnostic Complete' : 'Analyzed'),
         isManipulated: analysisResult.isManipulated,
+        isInconclusive: Boolean(analysisResult.isInconclusive),
         confidencePct: analysisResult.confidencePct,
         scores: analysisResult.scores || null,
         isDemo: Boolean(analysisResult.isDemo),

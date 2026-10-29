@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import random
@@ -14,7 +15,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageFilter, UnidentifiedImageError
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -49,6 +50,12 @@ class TrainingConfig:
     pretrained: bool = True
     source_frame_manifest: Path | None = None
     fft_norm: str = "minmax"
+    threshold: float = 0.5
+    temperature: float = 1.0
+    uncertainty_low: float = 0.35
+    uncertainty_high: float = 0.65
+    training_resolution: int = 32
+    augment_degradation: bool = False
 
 
 @dataclass(frozen=True)
@@ -103,6 +110,10 @@ def json_safe_config(config: TrainingConfig, **extra: Any) -> dict[str, Any]:
         "faceforensicspp": "manipulated_vs_real",
     }.get(config.task, "unknown"))
     value.setdefault("score_type", "uncalibrated model probability")
+    value.setdefault("threshold", config.threshold)
+    value.setdefault("temperature", config.temperature)
+    value.setdefault("uncertainty_band", [config.uncertainty_low, config.uncertainty_high])
+    value.setdefault("training_resolution", config.training_resolution)
     return value
 
 
@@ -116,6 +127,28 @@ def json_safe_value(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     return value
+
+
+def apply_training_degradation(image: Image.Image, enabled: bool) -> Image.Image:
+    """Apply class-independent upload-like degradation when enabled."""
+    if not enabled:
+        return image
+    if random.random() < 0.7:
+        scale = random.choice((0.125, 0.25, 0.5, 0.75, 1.0))
+        small = max(8, int(min(image.size) * scale))
+        image = image.resize((small, small), Image.Resampling.BILINEAR)
+        image = image.resize((224, 224), Image.Resampling.BILINEAR)
+    if random.random() < 0.5:
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=random.randint(30, 95))
+        image = Image.open(io.BytesIO(output.getvalue())).convert("RGB")
+    if random.random() < 0.25:
+        image = image.filter(ImageFilter.GaussianBlur(radius=0.5))
+    if random.random() < 0.25:
+        values = np.asarray(image, dtype=np.int16)
+        noise = np.random.normal(0, 3, values.shape)
+        image = Image.fromarray(np.clip(values + noise, 0, 255).astype(np.uint8), "RGB")
+    return image
 
 
 def _resolve_path(value: str, manifest_dir: Path) -> Path:
@@ -263,10 +296,11 @@ def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
 
 
 class RGBManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
-    def __init__(self, rows: list[ManifestRow], manifest_dir: Path, *, training: bool = False):
+    def __init__(self, rows: list[ManifestRow], manifest_dir: Path, *, training: bool = False, augment_degradation: bool = False):
         self.rows = rows
         self.manifest_dir = manifest_dir
         self.training = training
+        self.augment_degradation = augment_degradation
         self.normalization = Normalization()
 
     def __len__(self) -> int:
@@ -278,6 +312,7 @@ class RGBManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
         try:
             with Image.open(path) as source:
                 image = source.convert("RGB")
+            image = apply_training_degradation(image, self.augment_degradation and self.training)
             image = image.resize((224, 224), Image.Resampling.BILINEAR)
             if self.training and random.random() < 0.5:
                 image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -346,7 +381,12 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(config.pretrained).to(device)
     train_loader = make_loader(
-        RGBManifestDataset(rows["train"], config.manifest_dir, training=True), config, shuffle=True
+        RGBManifestDataset(
+            rows["train"],
+            config.manifest_dir,
+            training=True,
+            augment_degradation=config.augment_degradation,
+        ), config, shuffle=True
     )
     val_loader = make_loader(RGBManifestDataset(rows["val"], config.manifest_dir), config, shuffle=False)
     test_loader = make_loader(RGBManifestDataset(rows["test"], config.manifest_dir), config, shuffle=False)
@@ -426,6 +466,7 @@ def main() -> int:
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--source-frame-manifest", type=Path)
+    parser.add_argument("--augment-degradation", action="store_true")
     args = parser.parse_args()
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
@@ -433,6 +474,7 @@ def main() -> int:
         weight_decay=args.weight_decay, num_workers=args.num_workers,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
+        augment_degradation=args.augment_degradation,
     )
     try:
         if args.preflight_only:

@@ -111,17 +111,22 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         checkpoint_task = result.task
         label_semantics = result.label_semantics
         score_type = result.score_type
-        prediction = result.prediction if result.task != "cifake" else None
+        prediction = (
+            result.prediction
+            if result.task != "cifake" or result.prediction == "inconclusive"
+            else None
+        )
         score = result.score if result.task != "cifake" else None
         model_version = result.model_version
         status = "inference_complete"
-        domain_warning = None
-        if result.task == "cifake":
+        domain_warning = result.reason
+        if result.task == "cifake" and domain_warning is None:
             domain_warning = (
                 "This checkpoint was trained on 32x32 CIFAKE images "
                 "(AI-generated versus real), so it is not valid for manipulated-image labeling."
             )
-            message = domain_warning
+        if result.prediction == "inconclusive":
+            message = domain_warning or "The model could not make a confident in-domain classification."
         else:
             message = "Model inference completed. The score is not calibrated."
     else:

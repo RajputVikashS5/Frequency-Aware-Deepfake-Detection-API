@@ -49,4 +49,11 @@ export const appConfig = {
   },
 };
 
+if (appConfig.isDemoMode) {
+  console.warn(
+    '[ImageForensics AI] DEMO MODE is active. Results are not produced by the FastAPI model. ' +
+      'Set VITE_DEMO_MODE=false to use the live API.'
+  );
+}
+
 export const APP_CONFIG = appConfig;

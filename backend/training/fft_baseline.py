@@ -29,6 +29,7 @@ from backend.training.rgb_baseline import (
     json_safe_config,
     make_loader,
     json_safe_value,
+    apply_training_degradation,
 )
 
 
@@ -42,11 +43,15 @@ class FFTManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
         *,
         fft_norm: str = "minmax",
         fft_stats: tuple[float, float] | None = None,
+        training: bool = False,
+        augment_degradation: bool = False,
     ):
         self.rows = rows
         self.manifest_dir = manifest_dir
         self.fft_norm = fft_norm
         self.fft_stats = fft_stats
+        self.training = training
+        self.augment_degradation = augment_degradation
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -55,14 +60,16 @@ class FFTManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
         row = self.rows[index]
         path = _resolve_path(row.path, self.manifest_dir)
         try:
-            with path.open("rb") as handle:
-                tensor = torch.from_numpy(
-                    preprocess_fft(
-                        handle.read(),
-                        normalization=self.fft_norm,
-                        global_stats=self.fft_stats,
-                    )
+            with Image.open(path) as source:
+                image = source.convert("RGB")
+            image = apply_training_degradation(image, self.augment_degradation and self.training)
+            tensor = torch.from_numpy(
+                preprocess_fft(
+                    image,
+                    normalization=self.fft_norm,
+                    global_stats=self.fft_stats,
                 )
+            )
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"Unable to load FFT training image {path}: {exc}") from exc
         return tensor, row.label, row.path, row.group_id
@@ -111,6 +118,8 @@ def train(config: TrainingConfig) -> dict[str, Any]:
                 config.manifest_dir,
                 fft_norm=config.fft_norm,
                 fft_stats=fft_stats,
+                training=name == "train",
+                augment_degradation=config.augment_degradation,
             ),
             config,
             shuffle=name == "train",
@@ -165,6 +174,8 @@ def train(config: TrainingConfig) -> dict[str, Any]:
             config.manifest_dir,
             fft_norm=config.fft_norm,
             fft_stats=fft_stats,
+            training=False,
+            augment_degradation=False,
         ),
         config,
         shuffle=False,
@@ -219,6 +230,7 @@ def main() -> int:
     parser.add_argument("--fft-norm", choices=("minmax", "global"), default="minmax")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--source-frame-manifest", type=Path)
+    parser.add_argument("--augment-degradation", action="store_true")
     args = parser.parse_args()
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
@@ -226,6 +238,7 @@ def main() -> int:
         weight_decay=args.weight_decay, num_workers=args.num_workers, fft_norm=args.fft_norm,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
+        augment_degradation=args.augment_degradation,
     )
     try:
         if args.preflight_only:

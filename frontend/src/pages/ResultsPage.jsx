@@ -162,7 +162,9 @@ export default function ResultsPage() {
           /* Classification card is displayed only when a real model ran. */
           <div
             className={`rounded-2xl border p-6 sm:p-8 shadow-xl transition-colors ${
-              analysis.isManipulated
+              analysis.isInconclusive
+                ? 'bg-slate-800/30 border-slate-700/60'
+                : analysis.isManipulated
                 ? 'bg-red-950/20 border-red-900/60 shadow-red-950/20'
                 : 'bg-emerald-950/20 border-emerald-900/60 shadow-emerald-950/20'
             }`}
@@ -173,7 +175,11 @@ export default function ResultsPage() {
                   Forensic Classification Verdict
                 </span>
                 <div className="flex items-center space-x-3">
-                  <PredictionBadge isManipulated={analysis.isManipulated} size="large" />
+                  <PredictionBadge
+                    isManipulated={analysis.isManipulated}
+                    isInconclusive={analysis.isInconclusive}
+                    size="large"
+                  />
                   <span className="text-xs text-slate-400 font-mono">ID: {analysis.id}</span>
                 </div>
               </div>
