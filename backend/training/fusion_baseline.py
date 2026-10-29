@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import random
 import time
@@ -18,7 +19,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision.models import ResNet18_Weights, resnet18
 
-from backend.app.frequency import fft_log_magnitude
+from backend.app.frequency import preprocess_fft
 from backend.app.preprocessing import Normalization
 from backend.training.rgb_baseline import (
     ManifestRow,
@@ -27,6 +28,10 @@ from backend.training.rgb_baseline import (
     read_manifest,
     seed_everything,
     validate_task_manifests,
+    _metrics,
+    json_safe_config,
+    make_loader,
+    json_safe_value,
 )
 
 
@@ -56,10 +61,9 @@ class FusionManifestDataset(Dataset[tuple[torch.Tensor, torch.Tensor, int, str, 
             std = np.asarray(self.normalization.std, dtype=np.float32)
             rgb_array = (rgb_array - mean) / std
             rgb = torch.from_numpy(np.transpose(rgb_array, (2, 0, 1)).copy()).float()
-            gray = np.asarray(image.convert("L"), dtype=np.float32) / 255.0
-            fft = torch.from_numpy(
-                np.repeat(fft_log_magnitude(gray, normalize=True)[None, :, :], 3, axis=0)
-            ).float()
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            fft = torch.from_numpy(preprocess_fft(buffer.getvalue()))
         except (OSError, UnidentifiedImageError, ValueError) as exc:
             raise RuntimeError(f"Unable to load fusion image {path}: {exc}") from exc
         return rgb, fft, row.label, row.path, row.group_id
@@ -71,8 +75,20 @@ class RGBFFTFusionModel(nn.Module):
     def __init__(self, pretrained: bool):
         super().__init__()
         weights = ResNet18_Weights.DEFAULT if pretrained else None
-        self.rgb_branch = resnet18(weights=weights)
-        self.fft_branch = resnet18(weights=weights)
+        try:
+            self.rgb_branch = resnet18(weights=weights)
+            rgb_loaded = pretrained
+        except (OSError, RuntimeError):
+            self.rgb_branch = resnet18(weights=None)
+            rgb_loaded = False
+        try:
+            self.fft_branch = resnet18(weights=weights)
+            fft_loaded = pretrained
+        except (OSError, RuntimeError):
+            self.fft_branch = resnet18(weights=None)
+            fft_loaded = False
+        self.rgb_branch._pretrained_weights_loaded = rgb_loaded
+        self.fft_branch._pretrained_weights_loaded = fft_loaded
         rgb_features = self.rgb_branch.fc.in_features
         fft_features = self.fft_branch.fc.in_features
         self.rgb_branch.fc = nn.Identity()
@@ -83,33 +99,6 @@ class RGBFFTFusionModel(nn.Module):
         return self.classifier(torch.cat((self.rgb_branch(rgb), self.fft_branch(fft)), dim=1))
 
 
-def _metrics(model: nn.Module, loader: DataLoader, device: torch.device) -> dict[str, Any]:
-    model.eval()
-    criterion = nn.CrossEntropyLoss()
-    total = 0
-    loss_sum = 0.0
-    labels_all: list[int] = []
-    scores_all: list[float] = []
-    with torch.no_grad():
-        for rgb, fft, labels, _, _ in loader:
-            logits = model(rgb.to(device), fft.to(device))
-            labels = labels.to(device)
-            loss_sum += float(criterion(logits, labels).item()) * len(labels)
-            labels_all.extend(labels.cpu().tolist())
-            scores_all.extend(torch.softmax(logits, dim=1)[:, 1].cpu().tolist())
-            total += len(labels)
-    predictions = [int(value >= 0.5) for value in scores_all]
-    return {
-        "loss": loss_sum / total,
-        "accuracy": accuracy_score(labels_all, predictions),
-        "precision": precision_score(labels_all, predictions, zero_division=0),
-        "recall": recall_score(labels_all, predictions, zero_division=0),
-        "f1": f1_score(labels_all, predictions, zero_division=0),
-        "roc_auc": roc_auc_score(labels_all, scores_all) if len(set(labels_all)) == 2 else None,
-        "confusion_matrix": confusion_matrix(labels_all, predictions, labels=[0, 1]).tolist(),
-    }
-
-
 def train(config: TrainingConfig) -> dict[str, Any]:
     started = time.perf_counter()
     seed_everything(config.seed)
@@ -118,11 +107,10 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = RGBFFTFusionModel(config.pretrained).to(device)
     loaders = {
-        name: DataLoader(
+        name:         make_loader(
             FusionManifestDataset(split_rows, config.manifest_dir, training=name == "train"),
-            batch_size=config.batch_size,
+            config,
             shuffle=name == "train",
-            num_workers=config.num_workers,
         )
         for name, split_rows in rows.items()
     }
@@ -145,17 +133,17 @@ def train(config: TrainingConfig) -> dict[str, Any]:
         history.append({
             "epoch": epoch,
             "train_loss": total_loss / len(loaders["train"].dataset),
-            "val_metrics": val_metrics,
+            "val_metrics": json_safe_value(val_metrics),
         })
         if val_metrics["accuracy"] > best_accuracy:
             best_accuracy = val_metrics["accuracy"]
             torch.save({
                 "model_state": model.state_dict(),
-                "config": {**asdict(config), "input_contract": "aligned-rgb-and-fft-chw-224"},
+                "config": json_safe_config(config, input_contract="aligned-rgb-and-fft-chw-224"),
                 "epoch": epoch,
-                "val_metrics": val_metrics,
+                "val_metrics": json_safe_value(val_metrics),
             }, best_path)
-    checkpoint = torch.load(best_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(best_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model_state"], strict=True)
     test_metrics = _metrics(model, loaders["test"], device)
     external_metrics = None
@@ -165,12 +153,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
             "external-test",
             max_records=config.max_records,
         )
-        external_loader = DataLoader(
-            FusionManifestDataset(external_rows, config.manifest_dir),
-            batch_size=config.batch_size,
-            shuffle=False,
-            num_workers=config.num_workers,
-        )
+        external_loader = make_loader(FusionManifestDataset(external_rows, config.manifest_dir), config, shuffle=False)
         external_metrics = _metrics(model, external_loader, device)
     prefix = f"{config.task}-fusion-resnet18"
     (config.output_dir / f"{prefix}-history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
@@ -189,7 +172,10 @@ def train(config: TrainingConfig) -> dict[str, Any]:
         **validation,
         "device": str(device),
         "pretrained_weights_requested": config.pretrained,
-        "pretrained_weights_loaded": bool(config.pretrained),
+        "pretrained_weights_loaded": bool(
+            getattr(model.rgb_branch, "_pretrained_weights_loaded", False)
+            and getattr(model.fft_branch, "_pretrained_weights_loaded", False)
+        ),
         "pretrained_weights_source": str(ResNet18_Weights.DEFAULT) if config.pretrained else None,
         "best_checkpoint": str(best_path),
         "best_epoch": checkpoint["epoch"],
@@ -205,12 +191,14 @@ def train(config: TrainingConfig) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("faceforensicspp", "cifake"), required=True)
+    parser.add_argument("--task", choices=("faceforensicspp", "forgerynet", "cifake"), required=True)
     parser.add_argument("--manifest-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/fusion-baseline"))
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-records", type=int)
     parser.add_argument("--no-pretrained", action="store_true")
@@ -220,6 +208,7 @@ def main() -> int:
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
         epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay, num_workers=args.num_workers,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
     )

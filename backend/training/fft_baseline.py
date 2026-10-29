@@ -23,6 +23,9 @@ from backend.training.rgb_baseline import (
     seed_everything,
     _resolve_path,
     validate_task_manifests,
+    json_safe_config,
+    make_loader,
+    json_safe_value,
 )
 
 
@@ -51,9 +54,15 @@ def build_fft_model(pretrained: bool) -> tuple[nn.Module, bool]:
     """Build ResNet-18 and report whether pretrained weights loaded successfully."""
 
     weights = ResNet18_Weights.DEFAULT if pretrained else None
-    model = resnet18(weights=weights)
+    loaded = False
+    try:
+        model = resnet18(weights=weights)
+        loaded = pretrained
+    except (OSError, RuntimeError):
+        model = resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
-    return model, bool(pretrained)
+    model._pretrained_weights_loaded = loaded
+    return model, loaded
 
 
 def train(config: TrainingConfig) -> dict[str, Any]:
@@ -65,12 +74,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     model, pretrained_loaded = build_fft_model(config.pretrained)
     model.to(device)
     loaders = {
-        name: DataLoader(
-            FFTManifestDataset(split_rows, config.manifest_dir),
-            batch_size=config.batch_size,
-            shuffle=name == "train",
-            num_workers=config.num_workers,
-        )
+        name:         make_loader(FFTManifestDataset(split_rows, config.manifest_dir), config, shuffle=name == "train")
         for name, split_rows in rows.items()
     }
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
@@ -92,17 +96,17 @@ def train(config: TrainingConfig) -> dict[str, Any]:
         history.append({
             "epoch": epoch,
             "train_loss": total_loss / len(loaders["train"].dataset),
-            "val_metrics": val_metrics,
+            "val_metrics": json_safe_value(val_metrics),
         })
         if val_metrics["accuracy"] > best_accuracy:
             best_accuracy = val_metrics["accuracy"]
             torch.save({
                 "model_state": model.state_dict(),
-                "config": {**asdict(config), "input_contract": "fft-chw-224-repeat3"},
+                "config": json_safe_config(config, input_contract="fft-chw-224-repeat3"),
                 "epoch": epoch,
-                "val_metrics": val_metrics,
+                "val_metrics": json_safe_value(val_metrics),
             }, best_path)
-    checkpoint = torch.load(best_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(best_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model_state"], strict=True)
     test_metrics = _metrics(model, loaders["test"], device)
     external_metrics = None
@@ -112,12 +116,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
             "external-test",
             max_records=config.max_records,
         )
-        external_loader = DataLoader(
-            FFTManifestDataset(external_rows, config.manifest_dir),
-            batch_size=config.batch_size,
-            shuffle=False,
-            num_workers=config.num_workers,
-        )
+        external_loader = make_loader(FFTManifestDataset(external_rows, config.manifest_dir), config, shuffle=False)
         external_metrics = _metrics(model, external_loader, device)
     prefix = f"{config.task}-fft-resnet18"
     (config.output_dir / f"{prefix}-history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
@@ -154,12 +153,14 @@ def train(config: TrainingConfig) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("faceforensicspp", "cifake"), required=True)
+    parser.add_argument("--task", choices=("faceforensicspp", "forgerynet", "cifake"), required=True)
     parser.add_argument("--manifest-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/fft-baseline"))
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-records", type=int)
     parser.add_argument("--no-pretrained", action="store_true")
@@ -169,6 +170,7 @@ def main() -> int:
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
         epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay, num_workers=args.num_workers,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
     )

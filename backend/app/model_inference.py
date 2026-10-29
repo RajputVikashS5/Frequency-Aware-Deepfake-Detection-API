@@ -65,7 +65,7 @@ class RGBBaselineInference:
             self._error = "checkpoint file is missing"
             return
         try:
-            payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
+            payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
             state = payload.get("model_state") if isinstance(payload, dict) else None
             if not isinstance(state, dict):
                 raise ValueError("checkpoint has no model_state")

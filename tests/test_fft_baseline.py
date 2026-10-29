@@ -85,7 +85,7 @@ def test_fft_training_smoke_writes_reloadable_checkpoint(tmp_path):
 
     checkpoint = Path(report["best_checkpoint"])
     assert checkpoint.is_file()
-    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     model, _ = build_fft_model(False)
     model.load_state_dict(payload["model_state"], strict=True)
     assert report["best_epoch"] == 1

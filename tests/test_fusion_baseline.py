@@ -69,7 +69,7 @@ def test_fusion_training_smoke_writes_reloadable_checkpoint(tmp_path):
         epochs=1, batch_size=2, pretrained=False,
     ))
     checkpoint = Path(report["best_checkpoint"])
-    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     model = RGBFFTFusionModel(pretrained=False)
     model.load_state_dict(payload["model_state"], strict=True)
     assert report["best_epoch"] == 1

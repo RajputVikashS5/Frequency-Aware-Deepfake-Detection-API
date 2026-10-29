@@ -1,4 +1,5 @@
 import csv
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from backend.training.rgb_baseline import (
     RGBManifestDataset,
     TrainingConfig,
     validate_task_manifests,
+    json_safe_config,
 )
 
 
@@ -62,3 +64,15 @@ def test_rgb_manifest_rejects_group_leakage(tmp_path):
         writer.writerows(rows)
     with pytest.raises(ValueError, match="cross splits"):
         validate_task_manifests(TrainingConfig("cifake", manifest, tmp_path / "out", pretrained=False))
+
+
+def test_forgerynet_config_with_source_manifest_is_json_safe(tmp_path):
+    config = TrainingConfig(
+        "forgerynet",
+        tmp_path / "manifests",
+        tmp_path / "out",
+        source_frame_manifest=tmp_path / "frames.csv",
+        pretrained=False,
+    )
+    serialized = json.loads(json.dumps(json_safe_config(config)))
+    assert serialized["source_frame_manifest"] == str(tmp_path / "frames.csv")

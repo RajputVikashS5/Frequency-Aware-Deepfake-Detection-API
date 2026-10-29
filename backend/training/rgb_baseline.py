@@ -62,6 +62,52 @@ def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def seed_worker(worker_id: int) -> None:
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+
+
+def make_loader(dataset: Dataset, config: TrainingConfig, *, shuffle: bool) -> DataLoader:
+    generator = torch.Generator()
+    generator.manual_seed(config.seed)
+    return DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=shuffle,
+        num_workers=config.num_workers,
+        worker_init_fn=seed_worker,
+        generator=generator,
+    )
+
+
+def json_safe_config(config: TrainingConfig, **extra: Any) -> dict[str, Any]:
+    value = asdict(config)
+    value["manifest_dir"] = str(config.manifest_dir)
+    value["output_dir"] = str(config.output_dir)
+    value["source_frame_manifest"] = (
+        str(config.source_frame_manifest) if config.source_frame_manifest else None
+    )
+    value.update(extra)
+    return value
+
+
+def json_safe_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe_value(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Path):
+        return str(value)
+    return value
 
 
 def _resolve_path(value: str, manifest_dir: Path) -> Path:
@@ -111,14 +157,14 @@ def read_manifest(path: Path, expected_split: str, *, max_records: int | None = 
 
 
 def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
-    if config.task not in {"faceforensicspp", "cifake"}:
-        raise ValueError("task must be faceforensicspp or cifake")
+    if config.task not in {"faceforensicspp", "forgerynet", "cifake"}:
+        raise ValueError("task must be faceforensicspp, forgerynet, or cifake")
     external_card = config.manifest_dir / "external-test-dataset-card.json"
     if config.task == "cifake" and external_card.is_file():
         card = json.loads(external_card.read_text(encoding="utf-8"))
         if card.get("external_evaluation_only") is not True:
             raise ValueError("CIFAKE external-test card must be evaluation-only")
-    if config.task == "faceforensicspp":
+    if config.task in {"faceforensicspp", "forgerynet"}:
         source_manifest = config.source_frame_manifest
         if source_manifest is None:
             raise ValueError(
@@ -222,8 +268,16 @@ class RGBManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
 
 
 def build_model(pretrained: bool) -> nn.Module:
-    weights = ResNet18_Weights.DEFAULT if pretrained else None
-    model = resnet18(weights=weights)
+    loaded = False
+    if pretrained:
+        try:
+            model = resnet18(weights=ResNet18_Weights.DEFAULT)
+            loaded = True
+        except (OSError, RuntimeError):
+            model = resnet18(weights=None)
+    else:
+        model = resnet18(weights=None)
+    model._pretrained_weights_loaded = loaded
     model.fc = nn.Linear(model.fc.in_features, 2)
     return model
 
@@ -236,8 +290,13 @@ def _metrics(model: nn.Module, loader: DataLoader, device: torch.device) -> dict
     scores_all: list[float] = []
     criterion = nn.CrossEntropyLoss()
     with torch.no_grad():
-        for images, labels, _, _ in loader:
-            logits = model(images.to(device))
+        for batch in loader:
+            if len(batch) == 4:
+                images, labels, _, _ = batch
+                logits = model(images.to(device))
+            else:
+                rgb, fft, labels, _, _ = batch
+                logits = model(rgb.to(device), fft.to(device))
             labels = labels.to(device)
             loss_sum += float(criterion(logits, labels).item()) * len(labels)
             predictions = logits.argmax(dim=1)
@@ -264,18 +323,11 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     rows = validation.pop("rows")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(config.pretrained).to(device)
-    train_loader = DataLoader(
-        RGBManifestDataset(rows["train"], config.manifest_dir, training=True),
-        batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers,
+    train_loader = make_loader(
+        RGBManifestDataset(rows["train"], config.manifest_dir, training=True), config, shuffle=True
     )
-    val_loader = DataLoader(
-        RGBManifestDataset(rows["val"], config.manifest_dir),
-        batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers,
-    )
-    test_loader = DataLoader(
-        RGBManifestDataset(rows["test"], config.manifest_dir),
-        batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers,
-    )
+    val_loader = make_loader(RGBManifestDataset(rows["val"], config.manifest_dir), config, shuffle=False)
+    test_loader = make_loader(RGBManifestDataset(rows["test"], config.manifest_dir), config, shuffle=False)
     external_loader = None
     if config.task == "cifake":
         external_rows = read_manifest(
@@ -283,10 +335,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
             "external-test",
             max_records=config.max_records,
         )
-        external_loader = DataLoader(
-            RGBManifestDataset(external_rows, config.manifest_dir),
-            batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers,
-        )
+        external_loader = make_loader(RGBManifestDataset(external_rows, config.manifest_dir), config, shuffle=False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
     criterion = nn.CrossEntropyLoss()
     config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -308,18 +357,20 @@ def train(config: TrainingConfig) -> dict[str, Any]:
         history.append(item)
         if val_metrics["accuracy"] > best_accuracy:
             best_accuracy = val_metrics["accuracy"]
-            torch.save({"model_state": model.state_dict(), "config": asdict(config), "epoch": epoch, "val_metrics": val_metrics}, best_path)
-    checkpoint = torch.load(best_path, map_location=device, weights_only=False)
+            torch.save({
+                "model_state": model.state_dict(),
+                "config": json_safe_config(config),
+                "epoch": epoch,
+                "val_metrics": json_safe_value(val_metrics),
+            }, best_path)
+    checkpoint = torch.load(best_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model_state"])
     test_metrics = _metrics(model, test_loader, device)
     (config.output_dir / f"{config.task}-rgb-resnet18-history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
     (config.output_dir / f"{config.task}-rgb-resnet18-config.json").write_text(
         json.dumps(
             {
-                **asdict(config),
-                "manifest_dir": str(config.manifest_dir),
-                "output_dir": str(config.output_dir),
-                "source_frame_manifest": str(config.source_frame_manifest) if config.source_frame_manifest else None,
+                **json_safe_config(config),
             },
             indent=2,
             default=str,
@@ -328,7 +379,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     )
     report = {
         **validation, "device": str(device), "pretrained_weights_requested": config.pretrained,
-        "pretrained_weights_loaded": bool(config.pretrained),
+        "pretrained_weights_loaded": bool(getattr(model, "_pretrained_weights_loaded", False)),
         "pretrained_weights_source": str(ResNet18_Weights.DEFAULT) if config.pretrained else None,
         "best_checkpoint": str(best_path), "best_epoch": checkpoint["epoch"],
         "best_validation_metrics": checkpoint["val_metrics"], "test_metrics": test_metrics,
@@ -340,12 +391,14 @@ def train(config: TrainingConfig) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("faceforensicspp", "cifake"), required=True)
+    parser.add_argument("--task", choices=("faceforensicspp", "forgerynet", "cifake"), required=True)
     parser.add_argument("--manifest-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/rgb-baseline"))
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-records", type=int)
     parser.add_argument("--no-pretrained", action="store_true")
@@ -355,6 +408,7 @@ def main() -> int:
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
         epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay, num_workers=args.num_workers,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
     )
