@@ -33,6 +33,10 @@ class AnalysisResponse(BaseModel):
     score_type: str | None = None
     calibrated: bool = False
     model_version: str | None = None
+    checkpoint_task: str | None = None
+    label_semantics: str | None = None
+    domain_warning: str | None = None
+    processing_time_ms: float | None = None
     message: str
     metadata: DiagnosticMetadata
     visualizations: DiagnosticVisualizations
