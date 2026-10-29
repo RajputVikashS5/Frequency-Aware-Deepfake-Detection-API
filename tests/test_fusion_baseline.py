@@ -2,6 +2,7 @@ import csv
 from pathlib import Path
 
 import torch
+import numpy as np
 from PIL import Image
 
 from backend.app.frequency import preprocess_fft
@@ -18,7 +19,10 @@ def _write_manifests(root: Path) -> Path:
         rows = []
         for label_name, label in (("real", 0), ("fake", 1)):
             path = images / f"{split}-{label_name}.png"
-            Image.new("RGB", (16, 12), (20 + label * 100, 30, 40)).save(path)
+            pixels = np.random.default_rng(hash(split + label_name) & 0xFFFF).integers(
+                0, 256, size=(16, 16, 3), dtype=np.uint8
+            )
+            Image.fromarray(pixels, "RGB").save(path)
             rows.append({
                 "path": str(path), "label_name": label_name, "label": label,
                 "group_id": f"{split}-{label_name}", "split": split,
@@ -30,7 +34,10 @@ def _write_manifests(root: Path) -> Path:
     external = []
     for label_name, label in (("real", 0), ("fake", 1)):
         path = images / f"external-{label_name}.png"
-        Image.new("RGB", (16, 12), (40 + label * 100, 30, 40)).save(path)
+        pixels = np.random.default_rng(hash("external" + label_name) & 0xFFFF).integers(
+            0, 256, size=(16, 16, 3), dtype=np.uint8
+        )
+        Image.fromarray(pixels, "RGB").save(path)
         external.append({
             "path": str(path), "label_name": label_name, "label": label,
             "group_id": f"external-{label_name}", "split": "external-test",

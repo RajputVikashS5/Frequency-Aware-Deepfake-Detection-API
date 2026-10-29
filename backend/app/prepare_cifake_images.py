@@ -12,7 +12,7 @@ from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
-from .dataset import scan_dataset, split_records
+from .dataset import _pixel_sha256, scan_dataset, split_records
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -75,6 +75,7 @@ def validate_cifake(input_root: Path) -> dict[str, object]:
                 report["missing_combinations"].append(f"{partition_name}/{label}")
                 continue
             seen_hashes: dict[str, str] = {}
+            seen_pixel_hashes: dict[str, str] = {}
             for path in sorted(label_dir.rglob("*")):
                 if not path.is_file():
                     continue
@@ -93,11 +94,17 @@ def validate_cifake(input_root: Path) -> dict[str, object]:
                         for block in iter(lambda: handle.read(1024 * 1024), b""):
                             digest_builder.update(block)
                     digest = digest_builder.hexdigest()
-                    if digest in seen_hashes:
+                    with Image.open(path) as image:
+                        pixel_digest = hashlib.sha256(
+                            image.convert("RGB").tobytes()
+                        ).hexdigest()
+                    duplicate_of = seen_hashes.get(digest) or seen_pixel_hashes.get(pixel_digest)
+                    if duplicate_of:
                         report["duplicate_files"].append(
-                            {"path": str(path), "duplicate_of": seen_hashes[digest]}
+                            {"path": str(path), "duplicate_of": duplicate_of}
                         )
                     seen_hashes[digest] = str(path)
+                    seen_pixel_hashes[pixel_digest] = str(path)
                 except (OSError, UnidentifiedImageError, ValueError) as exc:
                     report["invalid_files"].append({"path": str(path), "reason": str(exc)})
     for partition, counts in report["partition_counts"].items():
@@ -108,7 +115,11 @@ def validate_cifake(input_root: Path) -> dict[str, object]:
             report["sample"] = not bool(json.loads(sample_manifest.read_text()).get("full_dataset_downloaded"))
         except (OSError, json.JSONDecodeError):
             report["warnings"].append("sample-manifest.json could not establish completeness")
-    report["valid"] = not report["missing_combinations"] and not report["invalid_files"]
+    report["valid"] = (
+        not report["missing_combinations"]
+        and not report["invalid_files"]
+        and not report["duplicate_files"]
+    )
     return report
 
 
@@ -185,9 +196,21 @@ def prepare_cifake(
     output.mkdir(parents=True, exist_ok=True)
     train_root, test_root = output / "training-source", output / "external-test-source"
     _copy_partition(train, train_root, 10**12)
-    _copy_partition(test, test_root, max_test_images or 10**12)
+    test_limit = 10**12 if max_test_images == 0 else (max_test_images if max_test_images is not None else 500)
+    _copy_partition(test, test_root, test_limit)
     train_report = scan_dataset(train_root)
     test_report = scan_dataset(test_root)
+    if train_report.cross_label_duplicate_paths or test_report.cross_label_duplicate_paths:
+        raise ValueError("CIFAKE input contains duplicate decoded pixels across labels")
+    all_pixel_hashes: set[str] = set()
+    for record in train_report.records:
+        all_pixel_hashes.add(_pixel_sha256(Path(record.path)))
+    external_duplicates = [
+        record.path for record in test_report.records
+        if _pixel_sha256(Path(record.path)) in all_pixel_hashes
+    ]
+    if external_duplicates:
+        raise ValueError("CIFAKE external-test contains decoded-pixel duplicates of training images")
     splits = split_records(train_report.records, seed=seed)
     for name, records in splits.items():
         _write_records(output / f"{name}.csv", records, split=name)
@@ -204,6 +227,7 @@ def prepare_cifake(
     card = {
         "name": "CIFAKE", "version": "image-v1", "dataset": "cifake",
         "external_evaluation_only": False, "grouping_strategy": "one group per image",
+        "image_dimensions": "32x32",
         "known_limitations": ["No source/identity metadata was provided; each image is its own group."],
         "split_seed": seed, "external_test_manifest": "external-test.csv",
         "external_test_count": len(test_report.records),

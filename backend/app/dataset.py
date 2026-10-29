@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from PIL import Image, UnidentifiedImageError
+import numpy as np
 
 SUPPORTED_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"})
 LABELS = {"real": 0, "fake": 1}
@@ -63,6 +64,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _pixel_sha256(path: Path) -> str:
+    with Image.open(path) as image:
+        pixels = np.asarray(image.convert("RGB"))
+    return hashlib.sha256(pixels.tobytes()).hexdigest()
+
+
 def _group_for(path: Path, root: Path, groups: Mapping[str, str] | None) -> str:
     relative = path.relative_to(root).as_posix()
     if groups and relative in groups:
@@ -85,6 +92,7 @@ def scan_dataset(
     exclusions: list[ExcludedImage] = []
     seen_paths: set[Path] = set()
     seen_hashes: dict[str, str] = {}
+    seen_pixel_hashes: dict[str, str] = {}
     duplicate_paths: list[str] = []
     content_duplicate_paths: list[str] = []
     cross_label_duplicate_paths: list[str] = []
@@ -116,20 +124,23 @@ def scan_dataset(
                     width, height = image.size
                     image_format = image.format or path.suffix.lstrip(".").upper()
                 digest = _sha256(path)
+                pixel_digest = _pixel_sha256(path)
             except (OSError, UnidentifiedImageError, ValueError) as exc:
                 exclusions.append(ExcludedImage(str(path), f"unreadable or corrupt image: {exc}"))
                 continue
 
-            if digest in seen_hashes:
+            duplicate_of = seen_hashes.get(digest) or seen_pixel_hashes.get(pixel_digest)
+            if duplicate_of:
                 content_duplicate_paths.append(str(path))
                 previous = next(
-                    (record for record in records if record.path == seen_hashes[digest]),
+                    (record for record in records if record.path == duplicate_of),
                     None,
                 )
                 if previous and previous.label != label:
                     cross_label_duplicate_paths.append(str(path))
                 continue
             seen_hashes[digest] = str(path)
+            seen_pixel_hashes[pixel_digest] = str(path)
             records.append(
                 ImageRecord(
                     path=str(path),
@@ -167,6 +178,9 @@ def split_records(
         raise ValueError("ratios must contain three positive values")
     if abs(sum(ratios) - 1.0) > 1e-6:
         raise ValueError("ratios must sum to 1.0")
+    present_labels = {record.label for record in items}
+    if present_labels != set(LABELS.values()):
+        raise ValueError("both real and fake classes are required for stratified splitting")
 
     groups: dict[str, list[ImageRecord]] = {}
     for record in items:

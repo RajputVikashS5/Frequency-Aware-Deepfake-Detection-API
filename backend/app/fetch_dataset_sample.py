@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import shutil
 from io import BytesIO
 from pathlib import Path
@@ -117,7 +118,8 @@ def fetch_sample(
     dataset: str,
     output: Path,
     *,
-    per_label: int = 10,
+    per_label: int = 500,
+    seed: int = 42,
     partition: str | None = None,
     force: bool = False,
     client: Any | None = None,
@@ -125,8 +127,8 @@ def fetch_sample(
 ) -> dict[str, object]:
     if dataset != "cifake":
         raise ValueError("This sample command supports CIFAKE only")
-    if not 1 <= per_label <= 5000:
-        raise ValueError("--per-label must be between 1 and 5000")
+    if not 0 <= per_label <= 100000:
+        raise ValueError("--per-label must be between 0 and 100000 (0 means all)")
     if partition not in {"train", "test"}:
         raise ValueError("CIFAKE downloads require --partition train or test")
     output.mkdir(parents=True, exist_ok=True)
@@ -168,11 +170,14 @@ def fetch_sample(
         for label in ("real", "fake")
     }
     failures: list[dict[str, str]] = []
+    limit = None if per_label == 0 else per_label
     for label in ("real", "fake"):
         if not candidates[label]:
             failures.append({"label": label, "reason": "no eligible image objects found"})
-        for key in candidates[label]:
-            if counts[label] >= per_label:
+        selected = sorted(candidates[label])
+        random.Random(seed + (0 if label == "real" else 1)).shuffle(selected)
+        for key in selected:
+            if limit is not None and counts[label] >= limit:
                 break
             if key in existing_keys:
                 continue
@@ -208,7 +213,8 @@ def fetch_sample(
         "dataset": "cifake",
         "prefix": dataset_prefixes(config)["cifake"],
         "per_label_limit": per_label,
-        "full_dataset_downloaded": False,
+        "full_dataset_downloaded": per_label == 0,
+        "selection_seed": seed,
         "warnings": failures,
     })
     _write_manifest(output, manifest)
@@ -229,10 +235,10 @@ def fetch_sample(
     }
     manifest["counts"] = manifest["counts_by_partition"][partition]
     _write_manifest(output, manifest, recompute_counts=False)
-    if any(counts[label] < per_label for label in ("real", "fake")):
+    if limit is not None and any(counts[label] < limit for label in ("real", "fake")):
         manifest["incomplete"] = True
         manifest["missing_samples"] = {
-            label: max(0, per_label - counts[label]) for label in ("real", "fake")
+            label: max(0, limit - counts[label]) for label in ("real", "fake")
         }
     return manifest
 
@@ -308,7 +314,8 @@ def recover_samples(sources: Iterable[Path], output: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", choices=("cifake",), default="cifake")
-    parser.add_argument("--per-label", type=int, default=10)
+    parser.add_argument("--per-label", type=int, default=500)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--partition", choices=("train", "test"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--force", action="store_true")
@@ -320,7 +327,7 @@ def main() -> int:
         else:
             result = fetch_sample(
                 args.dataset, args.output, per_label=args.per_label,
-                partition=args.partition, force=args.force,
+                partition=args.partition, force=args.force, seed=args.seed,
             )
         print(json.dumps(result, indent=2))
     except (R2VerificationError, OSError, ValueError, RuntimeError) as exc:

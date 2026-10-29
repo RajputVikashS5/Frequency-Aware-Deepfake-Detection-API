@@ -1,5 +1,6 @@
 import csv
 import json
+import numpy as np
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,10 @@ def _write_fixture(root: Path) -> Path:
     for split in rows:
         for label_name, label in (("real", 0), ("fake", 1)):
             path = source / f"{split}-{label_name}.jpg"
-            Image.new("RGB", (8, 8), (20 + label * 100, 30, 40)).save(path)
+            pixels = np.random.default_rng(hash(split + label_name) & 0xFFFF).integers(
+                0, 256, size=(16, 16, 3), dtype=np.uint8
+            )
+            Image.fromarray(pixels, "RGB").save(path)
             rows[split].append({
                 "path": str(path), "label_name": label_name, "label": label,
                 "group_id": f"{split}-{label_name}", "split": split,
@@ -33,7 +37,17 @@ def _write_fixture(root: Path) -> Path:
             writer.writeheader()
             writer.writerows(values)
     with (manifest / "external-test.csv").open("w", newline="", encoding="utf-8") as handle:
-        external = [{**row, "split": "external-test"} for row in rows["test"]]
+        external = []
+        for label_name, label in (("real", 0), ("fake", 1)):
+            path = source / f"external-{label_name}.jpg"
+            pixels = np.random.default_rng(hash("external" + label_name) & 0xFFFF).integers(
+                0, 256, size=(16, 16, 3), dtype=np.uint8
+            )
+            Image.fromarray(pixels, "RGB").save(path)
+            external.append({
+                "path": str(path), "label_name": label_name, "label": label,
+                "group_id": f"external-{label_name}", "split": "external-test",
+            })
         writer = csv.DictWriter(handle, fieldnames=external[0])
         writer.writeheader()
         writer.writerows(external)

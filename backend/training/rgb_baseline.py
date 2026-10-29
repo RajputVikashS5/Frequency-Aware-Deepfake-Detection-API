@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import random
@@ -202,7 +203,9 @@ def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
     locations: dict[str, set[str]] = {}
     missing: list[str] = []
     duplicates: list[str] = []
+    pixel_duplicates: list[str] = []
     seen: set[str] = set()
+    seen_pixels: dict[str, str] = {}
     for row in all_rows:
         path = _resolve_path(row.path, config.manifest_dir)
         key = str(path.resolve())
@@ -217,6 +220,12 @@ def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
         try:
             with Image.open(path) as image:
                 image.verify()
+            with Image.open(path) as image:
+                pixel_hash = hashlib.sha256(image.convert("RGB").tobytes()).hexdigest()
+            if pixel_hash in seen_pixels:
+                pixel_duplicates.append(row.path)
+            else:
+                seen_pixels[pixel_hash] = row.path
         except (OSError, UnidentifiedImageError) as exc:
             raise ValueError(f"Unreadable image {row.path}: {exc}") from exc
     leakage = sorted(group for group, split_names in locations.items() if len(split_names) > 1)
@@ -224,6 +233,11 @@ def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
         raise ValueError(f"{config.task} manifest has {len(missing)} missing image files")
     if duplicates:
         raise ValueError(f"{config.task} manifest has duplicate image records")
+    if pixel_duplicates:
+        raise ValueError(
+            f"{config.task} manifests contain decoded-pixel duplicates across splits/external-test: "
+            f"{pixel_duplicates[:5]}"
+        )
     if leakage:
         raise ValueError(f"{config.task} source groups cross splits: {leakage[:5]}")
     return {
@@ -235,6 +249,7 @@ def validate_task_manifests(config: TrainingConfig) -> dict[str, Any]:
         },
         "group_counts": {name: len({row.group_id for row in rows}) for name, rows in splits.items()},
         "duplicate_records": 0,
+        "pixel_duplicate_records": 0,
         "source_group_leakage": [],
         "image_files_validated": len(all_rows),
         "rows": splits,
