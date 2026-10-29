@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
-import math
 from typing import Any
 
 import cv2
@@ -58,7 +57,7 @@ def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, dict[st
     return crop_resized, False, bbox
 
 
-def compute_fft_spectrum(gray_face: np.ndarray) -> tuple[np.ndarray, list[dict[str, Any]], float]:
+def compute_fft_spectrum(gray_face: np.ndarray) -> tuple[np.ndarray, list[dict[str, Any]]]:
     """Compute centered 2D Fourier log magnitude spectrum and radial profile."""
     h, w = gray_face.shape
     f = np.fft.fft2(gray_face.astype(np.float32))
@@ -78,8 +77,6 @@ def compute_fft_spectrum(gray_face: np.ndarray) -> tuple[np.ndarray, list[dict[s
     radial_bins = 20
     radial_profile = []
     bin_size = max_radius / radial_bins
-    radial_energies = []
-
     for i in range(radial_bins):
         r_start = i * bin_size
         r_end = (i + 1) * bin_size
@@ -88,20 +85,10 @@ def compute_fft_spectrum(gray_face: np.ndarray) -> tuple[np.ndarray, list[dict[s
         norm_val = round(min(100.0, max(0.0, (mean_val / (magnitude.max() + 1e-6)) * 100)), 1)
         freq_label = f"{(i / radial_bins):.2f}π"
         radial_profile.append({"frequency": freq_label, "energy": norm_val})
-        radial_energies.append(norm_val)
-
-    # High frequency spectral anomaly metric
-    # In natural images, radial energy falls off sharply. In GAN/diffusion, high-freq tails persist or spike.
-    low_freq_energy = np.mean(radial_energies[:5]) if radial_energies else 1.0
-    high_freq_energy = np.mean(radial_energies[12:]) if len(radial_energies) > 12 else 0.5
-    hf_ratio = float(high_freq_energy / (low_freq_energy + 1e-5))
-    # Normalized score between 0.1 and 0.98
-    anomaly_score = float(np.clip(hf_ratio * 1.45, 0.15, 0.98))
-
-    return vis_fft, radial_profile, anomaly_score
+    return vis_fft, radial_profile
 
 
-def compute_dwt_subbands(gray_face: np.ndarray) -> tuple[np.ndarray, float]:
+def compute_dwt_subbands(gray_face: np.ndarray) -> np.ndarray:
     """Compute 2D Haar Discrete Wavelet Transform and return 2x2 tiled subbands."""
     face_float = gray_face.astype(np.float32) / 255.0
     coeffs2 = pywt.dwt2(face_float, "haar")
@@ -126,16 +113,10 @@ def compute_dwt_subbands(gray_face: np.ndarray) -> tuple[np.ndarray, float]:
     bottom_row = np.hstack([add_label(lh_u, "LH: Horiz"), add_label(hh_u, "HH: Diagonal")])
     grid = np.vstack([top_row, bottom_row])
 
-    # Wavelet high frequency energy balance
-    energy_hh = np.sum(HH**2)
-    energy_total = np.sum(LL**2) + np.sum(LH**2) + np.sum(HL**2) + energy_hh + 1e-6
-    hf_wavelet_ratio = float((np.sum(LH**2) + np.sum(HL**2) + energy_hh) / energy_total)
-    wavelet_score = float(np.clip(hf_wavelet_ratio * 4.2, 0.18, 0.96))
-
-    return grid, wavelet_score
+    return grid
 
 
-def compute_spatial_analysis(bgr_face: np.ndarray) -> tuple[np.ndarray, float]:
+def compute_spatial_analysis(bgr_face: np.ndarray) -> np.ndarray:
     """Compute Error Level Analysis (ELA) and boundary gradient heatmap."""
     # 1. Error Level Analysis (JPEG re-compression error)
     pil_img = Image.fromarray(cv2.cvtColor(bgr_face, cv2.COLOR_BGR2RGB))
@@ -160,11 +141,7 @@ def compute_spatial_analysis(bgr_face: np.ndarray) -> tuple[np.ndarray, float]:
     # Blend 60% heatmap with 40% face
     blended = cv2.addWeighted(colored_map, 0.65, bgr_face, 0.35, 0)
 
-    # Spatial anomaly score based on localized variance in ELA
-    ela_std = float(np.std(ela_gray))
-    spatial_score = float(np.clip((ela_std - 1.2) / 4.5, 0.20, 0.95))
-
-    return blended, spatial_score
+    return blended
 
 
 def image_to_base64_data_uri(img_bgr: np.ndarray, format_ext: str = ".jpg") -> str:
@@ -189,42 +166,18 @@ def analyze_image_bytes(file_bytes: bytes, filename: str) -> dict[str, Any]:
     gray_face = cv2.cvtColor(bgr_face, cv2.COLOR_BGR2GRAY)
 
     # Streams
-    vis_fft, radial_profile, freq_score = compute_fft_spectrum(gray_face)
-    vis_dwt, wavelet_score = compute_dwt_subbands(gray_face)
-    vis_spatial, spatial_score = compute_spatial_analysis(bgr_face)
+    vis_fft, radial_profile = compute_fft_spectrum(gray_face)
+    vis_dwt = compute_dwt_subbands(gray_face)
+    vis_spatial = compute_spatial_analysis(bgr_face)
 
-    # Fusion confidence calculation:
-    # Weighted ensemble: 40% FFT, 35% Spatial, 25% Wavelet
-    calibrated_prob = float((freq_score * 0.40) + (spatial_score * 0.35) + (wavelet_score * 0.25))
-    calibrated_prob = float(np.clip(calibrated_prob, 0.05, 0.98))
-    is_fake = bool(calibrated_prob >= 0.50)
-    confidence_pct = float(round(calibrated_prob * 100, 1))
-
-    # Diagnostic findings
-    findings = []
-    if is_fake:
-        findings.append("High-frequency Fourier log-magnitude spectrum shows periodic radial spikes indicative of generative upsampling.")
-        if spatial_score > 0.55:
-            findings.append("Spatial error-level analysis (ELA) exposes compression discrepancy between facial core and outer boundary.")
-        if wavelet_score > 0.50:
-            findings.append("Haar discrete wavelet decomposition indicates abnormal energy distribution in diagonal high-pass (HH) subband.")
-        if not face_found:
-            findings.append("Automated face cascade fallback applied: analyzed central facial region.")
-    else:
-        findings.append("Fourier spectrum shows natural continuous power-law frequency drop-off.")
-        findings.append("No significant localized error-level discontinuities detected.")
-        findings.append("Wavelet subband energy ratios align with authentic camera sensor noise profiles.")
+    findings = [
+        f"Face detected: {'yes' if face_found else 'no'}"
+        + (" (centre-crop fallback used)." if not face_found else "."),
+        f"Image dimensions: {w} x {h} pixels.",
+        "Fourier log-magnitude spectrum, Haar wavelet subbands, and JPEG recompression measurements were generated.",
+    ]
 
     return {
-        "verdict": "DEEPFAKE / MANIPULATED" if is_fake else "AUTHENTIC / REAL",
-        "is_fake": is_fake,
-        "confidence_pct": confidence_pct,
-        "calibrated_score": float(round(calibrated_prob, 4)),
-        "scores": {
-            "spatial_rgb": float(round(float(spatial_score) * 100, 1)),
-            "frequency_fft": float(round(float(freq_score) * 100, 1)),
-            "wavelet_dwt": float(round(float(wavelet_score) * 100, 1)),
-        },
         "metadata": {
             "filename": str(filename),
             "dimensions": f"{int(w)} x {int(h)} px",

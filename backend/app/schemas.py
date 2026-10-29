@@ -31,7 +31,6 @@ class AnalysisResponse(BaseModel):
     prediction: str | None = None
     score: float | None = None
     score_type: str | None = None
-    calibrated: bool = False
     model_version: str | None = None
     message: str
     metadata: DiagnosticMetadata

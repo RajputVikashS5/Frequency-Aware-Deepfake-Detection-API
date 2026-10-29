@@ -37,8 +37,8 @@ describe('ResultsPage Component', () => {
         { frequency: '0.1π', energy: 80, idealReference: 80 },
       ],
       findings: [
-        'Radial log-magnitude spectrum shows characteristic synthetic high-frequency elevation.',
-        'Haar diagonal HH subband confirms high-frequency noise discrepancy.',
+        'Face detected: no (centre-crop fallback used).',
+        'Image dimensions: 64 x 64 pixels.',
       ],
       modelVersion: 'ResNet18-FFT-DWT-v1.0-diag',
     };
@@ -72,21 +72,21 @@ describe('ResultsPage Component', () => {
     expect(screen.getByText(/multi-domain forensic inspection canvas/i)).toBeInTheDocument();
     expect(screen.getByText(/diagnostic evidence summary/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/radial log-magnitude spectrum shows characteristic synthetic/i)
+      screen.getByText(/face detected: no \(centre-crop fallback used\)/i)
     ).toBeInTheDocument();
   });
 
-  it('renders classification card and score cards when analysis is not diagnostic (demo mode)', () => {
+  it('renders classification card only when real model inference is available', () => {
     const mockDemoResult = {
       id: 'demo-test-789',
       timestamp: '2026-10-28T12:00:00.000Z',
       processingTimeMs: 1200,
-      isDemo: true,
+      isDemo: false,
       isDiagnostic: false,
-      disclaimer: 'DEMO DATA — NOT AN ACTUAL MODEL PREDICTION',
+      inferenceAvailable: true,
       isManipulated: true,
       confidencePct: 88.6,
-      scoreType: 'Calibrated Multimodal Fusion Probability',
+      scoreType: 'Model probability',
       scores: {
         rgbBranch: 74.2,
         fftBranch: 93.4,
@@ -104,7 +104,7 @@ describe('ResultsPage Component', () => {
       },
       spectralProfile: [],
       findings: ['Demo finding'],
-      modelVersion: 'ResNet18-FFT-DWT-v1.0 (Demo Scaffold)',
+      modelVersion: 'rgb-resnet18:test',
     };
 
     vi.spyOn(analysisService, 'getAnalysisById').mockReturnValue(mockDemoResult);

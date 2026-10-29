@@ -1,5 +1,5 @@
 import React from 'react';
-import { Info, FileText } from 'lucide-react';
+import { Info } from 'lucide-react';
 
 export default function AnalysisSummary({ findings, modelVersion }) {
   if (!findings || findings.length === 0) return null;

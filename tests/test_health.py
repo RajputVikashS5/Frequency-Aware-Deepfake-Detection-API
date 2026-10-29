@@ -28,14 +28,13 @@ def test_analyze_image_endpoint_returns_diagnostic_only_response():
     data = response.json()
     assert data["status"] == "diagnostic_complete"
     assert data["inference_available"] is False
-    assert data["prediction"] is None
-    assert data["score"] is None
     assert data["model_version"] is None
-    assert data["calibrated"] is False
     assert "is_fake" not in data
     assert "confidence_pct" not in data
     assert "calibrated_score" not in data
     assert "not a deepfake classification" in data["message"]
+    diagnostic_text = " ".join(data["findings"]).lower()
+    assert not any(term in diagnostic_text for term in ("verdict", "score", "confidence", "authentic", "generative"))
     assert 'visualizations' in data
     assert 'face_crop' in data['visualizations']
     assert 'fft_spectrum' in data['visualizations']

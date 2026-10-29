@@ -126,7 +126,6 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         prediction=prediction,
         score=score,
         score_type=score_type,
-        calibrated=False,
         model_version=model_version,
         message=message,
         metadata=diagnostic["metadata"],

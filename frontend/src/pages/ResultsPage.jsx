@@ -62,7 +62,7 @@ export default function ResultsPage() {
     );
   }
 
-  const isDiagnostic = Boolean(analysis.isDiagnostic);
+  const isDiagnostic = !analysis.inferenceAvailable;
 
   return (
     <PageLayout isDiagnostic={isDiagnostic}>
@@ -159,7 +159,7 @@ export default function ResultsPage() {
             </div>
           </div>
         ) : (
-          /* Classification card is displayed ONLY for labelled demo/evaluation data */
+          /* Classification card is displayed only when a real model ran. */
           <div
             className={`rounded-2xl border p-6 sm:p-8 shadow-xl transition-colors ${
               analysis.isManipulated
@@ -180,7 +180,7 @@ export default function ResultsPage() {
 
               <div className="text-left sm:text-right">
                 <span className="text-[11px] text-slate-400 block font-mono">
-                  Multimodal Calibrated Confidence
+                  Model Score
                 </span>
                 <span className="text-xl sm:text-2xl font-extrabold font-mono text-accent-cyan">
                   {typeof analysis.confidencePct === 'number'
@@ -199,14 +199,14 @@ export default function ResultsPage() {
                 <span>Latency: {analysis.processingTimeMs || 1200} ms</span>
               </div>
               <div>
-                <span>Score Type: {analysis.scoreType || 'Demonstration probability'}</span>
+                <span>Score Type: {analysis.scoreType || 'Model score'}</span>
               </div>
             </div>
           </div>
         )}
 
         {/* Feature Score Cards: ONLY shown when not diagnostic and scores exist */}
-        {!isDiagnostic && analysis.scores && (
+        {analysis.inferenceAvailable && analysis.scores && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <ScoreCard
               title="Spatial RGB Branch"
