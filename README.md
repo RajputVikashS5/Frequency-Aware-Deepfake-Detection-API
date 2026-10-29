@@ -415,12 +415,9 @@ Reproducible commands:
   --epochs 1 --batch-size 32 --seed 42
 ```
 
-The measured one-epoch comparison is recorded in
-`experiments/fft-baseline/cifake-image-v2/comparison-report.json`. The RGB
-internal-test accuracy was 93.50%; the FFT internal-test accuracy was 85.45%.
-These are CPU smoke/baseline results, not tuned benchmark claims. The
-20-image CIFAKE external test remains evaluation-only. No FFT checkpoint is
-connected to the API.
+Evaluation numbers are not claimed here unless they are regenerated with the
+evaluation command below from committed checkpoints. CIFAKE external-test
+data remains evaluation-only.
 
 ### Phase 6 --- RGB + FFT fusion
 
@@ -444,11 +441,10 @@ aligned during training.
   --epochs 1 --batch-size 32 --seed 42
 ```
 
-Artifacts and the complete RGB/FFT/fusion comparison are written under
-`experiments\fusion-baseline\cifake-image-v2`. On the identical internal test
-split, the one-epoch accuracies were RGB 93.50%, FFT 85.45%, and fusion
-93.21%. These are baseline measurements, not tuned benchmark claims. The
-fusion model is not connected to FastAPI.
+Artifacts and comparisons are written under
+`experiments\fusion-baseline\cifake-image-v2`. No accuracy claim is made
+without a committed report produced by the evaluation command. The fusion
+model is not connected to FastAPI.
 
 ### Phase 7 --- Optional DWT extension
 
@@ -460,7 +456,19 @@ fusion model is not connected to FastAPI.
 
 ### Phase 8 --- Evaluation and robustness
 
-**Status: planned.**
+**Status: implemented as a checkpoint-backed evaluation command.**
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.training.evaluate `
+  --eval-only --model rgb `
+  --checkpoint experiments\rgb-baseline\cifake-image-v2\cifake-rgb-resnet18-best.pt `
+  --manifest-dir data\metadata\cifake-image-v2 `
+  --fft-input upsampled
+```
+
+The command reports point metrics, bootstrap 95% intervals, a mean/std pixel
+logistic baseline, and JPEG/resize/blur/noise robustness results. Test sets
+under 200 images are explicitly marked as not statistically meaningful.
 
 -   Report accuracy, precision, recall, F1, ROC-AUC, and confusion
     matrix.

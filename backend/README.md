@@ -175,8 +175,8 @@ RGB run. Diagnostic FFT images are not used as a substitute for model input.
 
 The report, history, configuration, checkpoint, and RGB-versus-FFT
 comparison are written under `experiments\fft-baseline\cifake-image-v2`.
-The observed one-epoch internal-test accuracies were 93.50% for RGB and
-85.45% for FFT on the identical CIFAKE split. FaceForensics++-derived training
+Historical experiment values are not treated as reproducible claims unless
+the evaluation command is rerun from committed artifacts. FaceForensics++-derived training
 remains blocked until its actual dataset identity and official source-video
 mappings are verified.
 
@@ -198,8 +198,8 @@ horizontal-flip decision so they remain aligned.
   --epochs 1 --batch-size 32 --seed 42
 ```
 
-The one-epoch internal-test accuracies were 93.50% RGB, 85.45% FFT, and
-93.21% fusion on the same split. See the fusion experiment directory for the
+No accuracy claim is made for RGB, FFT, or fusion without a fresh evaluation
+report from the same split. See the fusion experiment directory for the
 checkpoint, configuration, history, report, and comparison report. This
 model remains training-only and is not connected to the API.
 
