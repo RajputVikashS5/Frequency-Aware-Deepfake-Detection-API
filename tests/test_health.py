@@ -4,6 +4,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+from backend.app import forensics
 
 client = TestClient(app)
 
@@ -45,3 +46,16 @@ def test_predict_compatibility_alias_is_diagnostic_only():
     response = client.post('/predict', files={'file': ('test.png', io.BytesIO(b''), 'image/png')})
     assert response.status_code == 400
     assert response.json()["detail"]
+
+
+def test_face_detection_falls_back_when_cascade_is_empty(monkeypatch):
+    class EmptyCascade:
+        def empty(self):
+            return True
+
+    monkeypatch.setattr(forensics.cv2, "CascadeClassifier", lambda _: EmptyCascade())
+    image = np.zeros((32, 48, 3), dtype=np.uint8)
+    crop, found, bbox = forensics.detect_and_crop_face(image)
+    assert crop.shape == (256, 256, 3)
+    assert found is False
+    assert bbox["w"] == 32
