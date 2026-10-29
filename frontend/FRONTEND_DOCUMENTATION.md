@@ -47,7 +47,7 @@ frontend/
 │   │   └── router.jsx             # Route definitions and AppRoutes wrapper
 │   ├── components/
 │   │   ├── common/                # Shared foundational UI components
-│   │   │   ├── ConfidenceBar.jsx  # Calibrated probability bar
+│   │   │   ├── ConfidenceBar.jsx  # Optional model score bar
 │   │   │   ├── ConfirmDialog.jsx  # Accessible modal confirmation
 │   │   │   ├── EmptyState.jsx     # Fallback when data or history is empty
 │   │   │   ├── ErrorState.jsx     # Graceful error banner with retry trigger
@@ -338,6 +338,6 @@ npm run test:watch
 
 ## 12. Known Limitations & Roadmap
 
-1. **Model Inference**: The backend does not yet execute a trained fusion classifier. Future phases will integrate a PyTorch ResNet18 + Spectral attention classifier and expose calibrated binary probabilities.
+1. **Model Inference**: The backend may expose raw probabilities from a verified checkpoint. Diagnostic responses do not include model scores, and checkpoint task metadata is shown when inference is enabled.
 2. **Client-Side Canvas Resolution**: In demo mode, canvas generation runs at 256x256 pixels for performance reasons. The backend generates high-resolution 512x512 decompositions.
 3. **Local History Scope**: Inspection logs reside in browser `localStorage`. When the user clears site data or switches browsers, past records are reset. A persistent database will be added during multi-user backend deployment.

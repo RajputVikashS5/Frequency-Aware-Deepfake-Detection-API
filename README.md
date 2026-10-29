@@ -556,12 +556,13 @@ dimensionally unsafe images. Uploaded originals are processed in memory and
 are not stored by default.
 
 Possible future fields include `analysis_id`, `filename`, `status`,
-`prediction`, `score`, `score_type`, `calibrated`, `model_version`,
+`prediction`, `score`, `score_type`, `checkpoint_task`, `label_semantics`,
+`domain_warning`, `model_version`,
 `processing_time_ms`, `branches.rgb`, `branches.fft`, `branches.fusion`,
 `visualizations.fft_spectrum_url`, `created_at`, and `message`.
 
-Use `null` or omit unavailable fields. Do not label a raw diagnostic value as
-a calibrated probability unless calibration has been evaluated.
+Use `null` or omit unavailable fields. Do not label a raw diagnostic value as a calibrated probability unless
+calibration has been evaluated.
 
 Example frontend environment:
 

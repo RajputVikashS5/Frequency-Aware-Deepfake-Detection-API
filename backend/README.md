@@ -242,9 +242,10 @@ After an approved dataset's manifests pass validation, train a baseline locally:
 ```
 
 Review the generated report before enabling inference. To load only the selected
-checkpoint, set `MODEL_CHECKPOINT_PATH` and `MODEL_VERSION` in `.env` and restart
-the API. The endpoint reports `inference_complete` only when this checkpoint loads
-successfully. Its `score` is an **uncalibrated** RGB-baseline probability.
+checkpoint, set `MODEL_CHECKPOINT_PATH` and `MODEL_VERSION` in `.env`. The
+endpoint reports `inference_complete` only when this checkpoint loads
+successfully and includes its task and label semantics. Scores are raw model
+probabilities, not calibrated probabilities.
 
 Run the read-only connectivity and dataset-prefix check after configuring
 `.env`:

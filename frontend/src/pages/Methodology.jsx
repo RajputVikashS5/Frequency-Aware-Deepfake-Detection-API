@@ -209,7 +209,7 @@ export default function Methodology() {
               <strong>Non-conclusive spectral indicators:</strong> FFT frequency anomalies do not constitute legal proof of synthetic manipulation. Aggressive lossy JPEG re-compression, social media filters, and camera sensor post-processing can also shift high-frequency characteristics.
             </li>
             <li>
-              <strong>Generalization constraints:</strong> A model calibrated solely on one generative family (e.g., GANs) may experience domain shift when presented with novel diffusion architectures.
+              <strong>Generalization constraints:</strong> A model trained solely on one generative family (e.g., GANs) may experience domain shift when presented with novel diffusion architectures.
             </li>
             <li>
               <strong>Academic prototype designation:</strong> This software is engineered for academic research, education, and forensic hypothesis testing.
