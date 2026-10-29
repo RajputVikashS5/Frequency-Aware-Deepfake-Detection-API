@@ -4,6 +4,7 @@ from pathlib import Path
 import torch
 from PIL import Image
 
+from backend.app.frequency import preprocess_fft
 from backend.training.fusion_baseline import FusionManifestDataset, RGBFFTFusionModel, train
 from backend.training.rgb_baseline import TrainingConfig
 
@@ -59,6 +60,25 @@ def test_fusion_dataset_and_forward_contract(tmp_path):
     assert path and group
     assert tuple(output.shape) == (1, 2)
     assert torch.isfinite(output).all()
+
+
+def test_fusion_fft_matches_flipped_rgb_source(tmp_path, monkeypatch):
+    manifest = _write_manifests(tmp_path)
+    from backend.training.rgb_baseline import read_manifest
+
+    rows = read_manifest(manifest / "train.csv", "train")
+    monkeypatch.setattr("backend.training.fusion_baseline.random.random", lambda: 0.1)
+    rgb, fft, _, path, _ = FusionManifestDataset(rows, manifest, training=True)[0]
+
+    with Image.open(path) as source:
+        flipped = source.convert("RGB").resize((224, 224), Image.Resampling.BILINEAR)
+    flipped = flipped.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    expected_buffer = __import__("io").BytesIO()
+    flipped.save(expected_buffer, format="PNG")
+    expected = torch.from_numpy(preprocess_fft(expected_buffer.getvalue()))
+
+    assert torch.allclose(fft, expected)
+    assert torch.isfinite(rgb).all()
 
 
 def test_fusion_training_smoke_writes_reloadable_checkpoint(tmp_path):

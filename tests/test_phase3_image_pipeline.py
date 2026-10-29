@@ -94,13 +94,15 @@ def test_fft_image_preprocessing_is_rgb_aware_deterministic_and_three_channel():
     data = image_bytes()
     first = preprocess_fft(data)
     second = preprocess_fft(data)
-
     assert first.shape == (3, 224, 224)
+    assert first.dtype == np.float32
+    assert not np.all((first >= 0) & (first <= 1))
     assert first.dtype == np.float32
     assert np.isfinite(first).all()
     assert np.array_equal(first, second)
-    assert np.array_equal(first[0], first[1])
-    assert 0 <= first.min() <= first.max() <= 1
+    unnormalized = preprocess_fft(data, imagenet_normalize=False)
+    assert np.array_equal(unnormalized[0], unnormalized[1])
+    assert np.isfinite(unnormalized).all()
 
 
 def test_fft_image_preprocessing_rejects_invalid_image_bytes():

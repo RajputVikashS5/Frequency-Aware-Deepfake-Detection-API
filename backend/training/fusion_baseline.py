@@ -63,7 +63,12 @@ class FusionManifestDataset(Dataset[tuple[torch.Tensor, torch.Tensor, int, str, 
             rgb = torch.from_numpy(np.transpose(rgb_array, (2, 0, 1)).copy()).float()
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
-            fft = torch.from_numpy(preprocess_fft(buffer.getvalue()))
+            fft = torch.from_numpy(
+                preprocess_fft(
+                    buffer.getvalue(),
+                    normalization="minmax",
+                )
+            )
         except (OSError, UnidentifiedImageError, ValueError) as exc:
             raise RuntimeError(f"Unable to load fusion image {path}: {exc}") from exc
         return rgb, fft, row.label, row.path, row.group_id
@@ -164,7 +169,7 @@ def train(config: TrainingConfig) -> dict[str, Any]:
         "architecture": "two ResNet-18 branches; concatenate 512-d features; Linear(1024, 2)",
         "input_contract": {
             "rgb": "RGB resize 224x224 with ImageNet normalization",
-            "fft": "same augmented RGB source -> grayscale -> fft2 -> fftshift -> log1p magnitude -> per-image min-max",
+            "fft": "same augmented RGB source -> grayscale -> fft2 -> fftshift -> log1p magnitude -> per-image min-max -> ImageNet normalization",
             "augmentation_alignment": "same horizontal flip decision for RGB and FFT views",
         },
     }, indent=2, default=str), encoding="utf-8")

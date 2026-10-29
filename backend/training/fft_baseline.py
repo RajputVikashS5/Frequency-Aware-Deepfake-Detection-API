@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
+from PIL import Image
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision.models import ResNet18_Weights, resnet18
 
-from backend.app.frequency import preprocess_fft
+from backend.app.frequency import fft_log_magnitude, preprocess_fft
 from backend.training.rgb_baseline import (
     ManifestRow,
     TrainingConfig,
@@ -32,9 +35,18 @@ from backend.training.rgb_baseline import (
 class FFTManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
     """Lazily converts manifest images into the canonical FFT tensor."""
 
-    def __init__(self, rows: list[ManifestRow], manifest_dir: Path):
+    def __init__(
+        self,
+        rows: list[ManifestRow],
+        manifest_dir: Path,
+        *,
+        fft_norm: str = "minmax",
+        fft_stats: tuple[float, float] | None = None,
+    ):
         self.rows = rows
         self.manifest_dir = manifest_dir
+        self.fft_norm = fft_norm
+        self.fft_stats = fft_stats
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -44,10 +56,28 @@ class FFTManifestDataset(Dataset[tuple[torch.Tensor, int, str, str]]):
         path = _resolve_path(row.path, self.manifest_dir)
         try:
             with path.open("rb") as handle:
-                tensor = torch.from_numpy(preprocess_fft(handle.read()))
+                tensor = torch.from_numpy(
+                    preprocess_fft(
+                        handle.read(),
+                        normalization=self.fft_norm,
+                        global_stats=self.fft_stats,
+                    )
+                )
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"Unable to load FFT training image {path}: {exc}") from exc
         return tensor, row.label, row.path, row.group_id
+
+
+def compute_fft_statistics(rows: list[ManifestRow], manifest_dir: Path) -> tuple[float, float]:
+    values: list[np.ndarray] = []
+    for row in rows:
+        path = _resolve_path(row.path, manifest_dir)
+        with path.open("rb") as handle:
+            image = Image.open(io.BytesIO(handle.read())).convert("RGB")
+        gray = np.asarray(image.resize((224, 224), Image.Resampling.BILINEAR).convert("L"), dtype=np.float32) / 255.0
+        values.append(fft_log_magnitude(gray, normalize=False).ravel())
+    combined = np.concatenate(values)
+    return float(combined.mean()), float(combined.std() or 1.0)
 
 
 def build_fft_model(pretrained: bool) -> tuple[nn.Module, bool]:
@@ -70,11 +100,21 @@ def train(config: TrainingConfig) -> dict[str, Any]:
     seed_everything(config.seed)
     validation = validate_task_manifests(config)
     rows = validation.pop("rows")
+    fft_stats = compute_fft_statistics(rows["train"], config.manifest_dir) if config.fft_norm == "global" else None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, pretrained_loaded = build_fft_model(config.pretrained)
     model.to(device)
     loaders = {
-        name:         make_loader(FFTManifestDataset(split_rows, config.manifest_dir), config, shuffle=name == "train")
+        name:                 make_loader(
+            FFTManifestDataset(
+                split_rows,
+                config.manifest_dir,
+                fft_norm=config.fft_norm,
+                fft_stats=fft_stats,
+            ),
+            config,
+            shuffle=name == "train",
+        )
         for name, split_rows in rows.items()
     }
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
@@ -102,7 +142,11 @@ def train(config: TrainingConfig) -> dict[str, Any]:
             best_accuracy = val_metrics["accuracy"]
             torch.save({
                 "model_state": model.state_dict(),
-                "config": json_safe_config(config, input_contract="fft-chw-224-repeat3"),
+                "config": json_safe_config(
+                    config,
+                    input_contract="fft-chw-224-repeat3-imagenet-normalized",
+                    fft_statistics=list(fft_stats) if fft_stats else None,
+                ),
                 "epoch": epoch,
                 "val_metrics": json_safe_value(val_metrics),
             }, best_path)
@@ -116,7 +160,15 @@ def train(config: TrainingConfig) -> dict[str, Any]:
             "external-test",
             max_records=config.max_records,
         )
-        external_loader = make_loader(FFTManifestDataset(external_rows, config.manifest_dir), config, shuffle=False)
+        external_loader = make_loader(        FFTManifestDataset(
+            external_rows,
+            config.manifest_dir,
+            fft_norm=config.fft_norm,
+            fft_stats=fft_stats,
+        ),
+        config,
+        shuffle=False,
+        )
         external_metrics = _metrics(model, external_loader, device)
     prefix = f"{config.task}-fft-resnet18"
     (config.output_dir / f"{prefix}-history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
@@ -164,13 +216,14 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-records", type=int)
     parser.add_argument("--no-pretrained", action="store_true")
+    parser.add_argument("--fft-norm", choices=("minmax", "global"), default="minmax")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--source-frame-manifest", type=Path)
     args = parser.parse_args()
     config = TrainingConfig(
         task=args.task, manifest_dir=args.manifest_dir, output_dir=args.output_dir,
         epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay, num_workers=args.num_workers,
+        weight_decay=args.weight_decay, num_workers=args.num_workers, fft_norm=args.fft_norm,
         seed=args.seed, max_records=args.max_records, pretrained=not args.no_pretrained,
         source_frame_manifest=args.source_frame_manifest,
     )

@@ -43,6 +43,9 @@ def preprocess_fft(
     image: Image.Image | bytes,
     *,
     target_size: tuple[int, int] = (224, 224),
+    normalization: str = "minmax",
+    global_stats: tuple[float, float] | None = None,
+    imagenet_normalize: bool = True,
 ) -> np.ndarray:
     """Return a normalized FFT image as a repeated three-channel CHW float32 array.
 
@@ -68,10 +71,24 @@ def preprocess_fft(
         gray = np.asarray(resized.convert("L"), dtype=np.float32) / 255.0
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError(f"Unable to decode image for FFT preprocessing: {exc}") from exc
-    spectrum = fft_log_magnitude(gray, normalize=True)
+    if normalization not in {"minmax", "global", "none"}:
+        raise ValueError("normalization must be minmax, global, or none")
+    if normalization == "global" and global_stats is None:
+        raise ValueError("global_stats are required for global FFT normalization")
+    spectrum = fft_log_magnitude(gray, normalize=normalization == "minmax")
+    if normalization == "global":
+        mean, std = global_stats
+        if std <= 0:
+            raise ValueError("global FFT standard deviation must be positive")
+        spectrum = (spectrum - mean) / std
     if not np.isfinite(spectrum).all():
         raise ValueError("FFT preprocessing produced non-finite values")
-    return np.repeat(spectrum[np.newaxis, :, :], 3, axis=0).astype(np.float32, copy=False)
+    output = np.repeat(spectrum[np.newaxis, :, :], 3, axis=0).astype(np.float32, copy=False)
+    if imagenet_normalize:
+        mean = np.asarray((0.485, 0.456, 0.406), dtype=np.float32)[:, None, None]
+        std = np.asarray((0.229, 0.224, 0.225), dtype=np.float32)[:, None, None]
+        output = (output - mean) / std
+    return output.astype(np.float32, copy=False)
 
 
 def save_fft_visualization(spectrum: np.ndarray, path: str | Path) -> None:

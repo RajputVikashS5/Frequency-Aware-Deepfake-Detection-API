@@ -47,6 +47,7 @@ class TrainingConfig:
     max_records: int | None = None
     pretrained: bool = True
     source_frame_manifest: Path | None = None
+    fft_norm: str = "minmax"
 
 
 @dataclass(frozen=True)
