@@ -32,6 +32,9 @@ class AnalysisResponse(BaseModel):
     score: float | None = None
     score_type: str | None = None
     model_version: str | None = None
+    checkpoint_task: str | None = None
+    label_semantics: str | None = None
+    domain_warning: str | None = None
     message: str
     metadata: DiagnosticMetadata
     visualizations: DiagnosticVisualizations

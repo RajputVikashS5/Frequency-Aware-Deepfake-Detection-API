@@ -15,6 +15,8 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image, UnidentifiedImageError
+from starlette.concurrency import run_in_threadpool
+import cv2
 
 from .config import settings
 from .forensics import analyze_image_bytes
@@ -99,21 +101,31 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
     _validate_image(content, file.content_type or "")
     try:
         diagnostic = analyze_image_bytes(content, file.filename)
-    except (OSError, ValueError, UnidentifiedImageError) as exc:
+    except (OSError, ValueError, UnidentifiedImageError, cv2.error) as exc:
         raise HTTPException(status_code=400, detail=f"Unable to analyze image: {exc}") from exc
 
     prediction = score = model_version = score_type = None
     inference_available = inference_model.available
     if inference_available:
-        result = inference_model.predict(content)
-        prediction, score, model_version = result.prediction, result.score, result.model_version
-        score_type = "Uncalibrated RGB baseline manipulation probability"
+        result = await run_in_threadpool(inference_model.predict, content)
+        checkpoint_task = result.task
+        label_semantics = result.label_semantics
+        score_type = result.score_type
+        prediction = result.prediction if result.task != "cifake" else None
+        score = result.score if result.task != "cifake" else None
+        model_version = result.model_version
         status = "inference_complete"
-        message = (
-            "Experimental RGB baseline inference completed. The score is an uncalibrated model probability, "
-            "not proof of authenticity or manipulation."
-        )
+        domain_warning = None
+        if result.task == "cifake":
+            domain_warning = (
+                "This checkpoint was trained on 32x32 CIFAKE images "
+                "(AI-generated versus real), so it is not valid for manipulated-image labeling."
+            )
+            message = domain_warning
+        else:
+            message = "Model inference completed. The score is not calibrated."
     else:
+        checkpoint_task = label_semantics = domain_warning = None
         status = "diagnostic_complete"
         message = (
             "Diagnostic FFT, DWT, ELA, and face-crop outputs are available. "
@@ -127,6 +139,9 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         score=score,
         score_type=score_type,
         model_version=model_version,
+        checkpoint_task=checkpoint_task,
+        label_semantics=label_semantics,
+        domain_warning=domain_warning,
         message=message,
         metadata=diagnostic["metadata"],
         visualizations=diagnostic["visualizations"],

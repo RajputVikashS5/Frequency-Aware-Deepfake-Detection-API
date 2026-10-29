@@ -5,12 +5,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import logging
 from typing import Any
 
 import cv2
 import numpy as np
 from PIL import Image
 import pywt
+
+logger = logging.getLogger(__name__)
 
 
 def decode_image(file_bytes: bytes) -> np.ndarray:
@@ -29,7 +32,13 @@ def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, dict[st
 
     face_cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
     face_cascade = cv2.CascadeClassifier(face_cascade_path)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+    if face_cascade.empty():
+        logger.warning("Face cascade could not be loaded; using centre-crop fallback")
+        faces = ()
+    else:
+        faces = face_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+        )
 
     if len(faces) > 0:
         # Pick largest face

@@ -97,6 +97,12 @@ def json_safe_config(config: TrainingConfig, **extra: Any) -> dict[str, Any]:
         str(config.source_frame_manifest) if config.source_frame_manifest else None
     )
     value.update(extra)
+    value.setdefault("label_semantics", {
+        "cifake": "ai_generated_vs_real",
+        "forgerynet": "manipulated_vs_real",
+        "faceforensicspp": "manipulated_vs_real",
+    }.get(config.task, "unknown"))
+    value.setdefault("score_type", "uncalibrated model probability")
     return value
 
 
