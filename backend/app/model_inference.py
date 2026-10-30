@@ -11,21 +11,24 @@ from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
-
-# Register safe globals for weights_only=True checkpoint loading
-import torch.serialization
 import pathlib
 import numpy
 
 try:
-    torch.serialization.add_safe_globals([
-        pathlib.WindowsPath,
-        pathlib.PosixPath,
-        numpy.core.multiarray.scalar,
-        numpy._core.multiarray.scalar,
-    ])
-except Exception:
-    pass  # May fail on some configurations, safe fallback will work
+    torch.serialization.add_safe_globals(
+        [
+            pathlib.WindowsPath,
+            pathlib.PosixPath,
+            numpy.core.multiarray.scalar,
+            numpy._core.multiarray.scalar,
+            numpy.dtype,
+            type(numpy.dtype(numpy.float32)),
+            numpy.dtypes.Float32DType,
+            numpy.dtypes.Float64DType,
+        ]
+    )
+except (AttributeError, TypeError):
+    pass
 
 # Ensure repository root and backend directory are on sys.path
 _repo_root = str(Path(__file__).resolve().parents[2])
@@ -182,12 +185,9 @@ class RGBBaselineInference:
             self._model = model
             if not self.model_version:
                 self.model_version = f"rgb-resnet18:{self.checkpoint_path.stem}"
-        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, EOFError) as exc:
             self._error = str(exc)
             self._error_at = time.monotonic()
-        # NOTE: weights_only=False fallback removed for security.
-        # Use only checkpoints saved with PyTorch >=1.13 format. If you have
-        # older checkpoints, re-export them using torch.save with weights_only=True.
 
     def reload(self) -> None:
         """Clear cached model/error state and retry loading on the next access."""

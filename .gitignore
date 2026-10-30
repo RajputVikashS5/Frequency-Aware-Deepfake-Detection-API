@@ -25,6 +25,7 @@ data/raw/
 data/faces/
 data/metadata/
 data/processed/
+data/downloads/
 data/groups.csv
 checkpoints/
 experiments/
@@ -42,6 +43,18 @@ frontend/.cache/
 # Temporary and generated outputs
 *.tmp
 *.bak
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+reports/
+.claude/
 
 # Notebook outputs
 .ipynb_checkpoints/
+
+# External evaluation datasets and generated reports
+external_datasets/
+evaluation_results/

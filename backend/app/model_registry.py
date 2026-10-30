@@ -92,10 +92,7 @@ class _CheckpointInference:
                 self.checkpoint_path, Path(__file__).resolve().parents[2]
             ):
                 raise ValueError("checkpoint path is outside project directory")
-            try:
-                payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
-            except Exception:
-                payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
+            payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
             if not isinstance(payload, dict) or not isinstance(payload.get("model_state"), dict):
                 raise ValueError("checkpoint has no model_state")
             config = payload.get("config", {})
@@ -128,7 +125,7 @@ class _CheckpointInference:
             if not self.model_version:
                 self.model_version = f"{self.key}:{self.checkpoint_path.stem}"
             self._error = None
-        except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, EOFError) as exc:
             self._error = str(exc)
             self._error_at = time.monotonic()
 

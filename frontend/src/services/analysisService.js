@@ -89,19 +89,7 @@ export const analysisService = {
           detections: Array.isArray(raw.detections) ? raw.detections : [],
           extended: raw.extended || null,
           dwtLevels: raw.dwt_levels || {},
-          // Separate detection channels
-          separateDetections: raw.separate_detections || {
-            deepfake_manipulation: {
-              verdict: isManipulated ? 'Likely Manipulated' : (isInconclusive ? 'Inconclusive' : 'Likely Authentic'),
-              task: 'deepfake_manipulation_vs_authentic',
-              labelSemantics: 'Manipulated versus authentic',
-            },
-            ai_generation: {
-              verdict: 'Inconclusive (Requires 32x32 native image)',
-              task: 'ai_generated_vs_real',
-              labelSemantics: 'AI-generated versus real',
-            },
-          },
+          separateDetections: raw.separate_detections || {},
         };
       } catch (err) {
         console.error('API call failed, unable to complete analysis:', err);

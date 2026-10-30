@@ -36,8 +36,15 @@ def test_analyze_image_endpoint_returns_diagnostic_only_response():
     assert "confidence_pct" not in data
     assert "calibrated_score" not in data
     if inference_model.available:
-        assert data["prediction"] in {"likely_real", "likely_manipulated", "inconclusive"}
-        assert abs(data["real_probability"] + data["fake_probability"] - 1.0) < 1e-5
+        if data["metadata"]["face_detected"]:
+            assert data["prediction"] in {"likely_real", "likely_manipulated", "inconclusive"}
+        else:
+            assert data["prediction"] is None
+            assert data["verdict_state"] == "NOT APPLICABLE"
+            assert data["real_probability"] is None
+            assert data["fake_probability"] is None
+        if data["metadata"]["face_detected"]:
+            assert abs(data["real_probability"] + data["fake_probability"] - 1.0) < 1e-5
         assert data["checkpoint_task"] in {"faceforensicspp", "cifake", "forgerynet"}
     else:
         assert "not a deepfake classification" in data["message"]

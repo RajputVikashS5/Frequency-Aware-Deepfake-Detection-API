@@ -59,6 +59,10 @@ class ModelResultResponse(BaseModel):
     calibrated: bool = False
     calibration_method: str | None = None
     calibration_dataset: str | None = None
+    checkpoint_status: str = "unavailable"
+    applicable_task: bool = True
+    calibration_status: str = "uncalibrated"
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class TaskDetectionResponse(BaseModel):

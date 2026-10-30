@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 import io
+import logging
 import os
 import re
 import sys
 import time
 import warnings
 from pathlib import Path
-from typing import Annotated
 
 # Ensure repository root is on sys.path so 'backend' package resolves cleanly from any working directory
 _repo_root = str(Path(__file__).resolve().parents[2])
@@ -35,6 +33,8 @@ from .schemas import (
     ModelResultResponse,
     TaskDetectionResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg": {"JPEG"},
@@ -117,11 +117,35 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline'; script-src 'self'; "
+        "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000; "
+        "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(detail=str(exc.detail)).model_dump(),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled request failure for %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(detail="The server could not complete the request.").model_dump(),
     )
 
 
@@ -157,8 +181,15 @@ def _validate_image(data: bytes, content_type: str) -> tuple[int, int, str]:
             with Image.open(io.BytesIO(data)) as image:
                 image_format = image.format
                 width, height = image.size
-    except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid or corrupt image: {exc}") from exc
+    except (
+        OSError,
+        UnidentifiedImageError,
+        ValueError,
+        Image.DecompressionBombWarning,
+        Image.DecompressionBombError,
+    ) as exc:
+        logger.info("Rejected invalid image upload: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="Invalid or corrupt image.") from exc
 
     if image_format not in ALLOWED_CONTENT_TYPES[content_type]:
         raise HTTPException(status_code=415, detail="Image content does not match the declared content type.")
@@ -173,7 +204,15 @@ def _model_response(
     key: str,
     model: object,
     result: object | None,
+    *,
+    applicable: bool = True,
 ) -> ModelResultResponse:
+    status = "loaded" if result is not None else ("not_applicable" if not applicable else "unavailable")
+    reason = (
+        result.reason
+        if result
+        else ("No face was detected; the face manipulation model was not run." if not applicable else model.status_message)
+    )
     return ModelResultResponse(
         key=key,
         name=getattr(model, "name", key.upper()),
@@ -186,10 +225,14 @@ def _model_response(
         task=result.task if result else None,
         label_semantics=result.label_semantics if result else None,
         processing_time_ms=result.processing_time_ms if result else None,
-        reason=result.reason if result else model.status_message,
+        reason=reason,
         calibrated=result.calibrated if result else False,
         calibration_method=result.calibration_method if result else None,
         calibration_dataset=result.calibration_dataset if result else None,
+        checkpoint_status=status,
+        applicable_task=applicable,
+        calibration_status="calibrated" if result and result.calibrated else "uncalibrated",
+        diagnostics={"input": "face_crop" if applicable and "deepfake" in key else "full_image"},
     )
 
 
@@ -198,9 +241,11 @@ def _task_detection(
     label_semantics: str,
     registry: ModelRegistry,
     results: dict[str, object],
+    *,
+    applicable: bool = True,
 ) -> TaskDetectionResponse:
     responses = [
-        _model_response(key, model, results.get(key))
+        _model_response(key, model, results.get(key), applicable=applicable)
         for key, model in registry.models.items()
     ]
     predictions = [
@@ -209,7 +254,7 @@ def _task_detection(
         if result.prediction in {"likely_real", "likely_manipulated"}
     ]
     if not predictions:
-        verdict = "MODEL UNAVAILABLE" if not results else "INCONCLUSIVE"
+        verdict = "NOT APPLICABLE" if not applicable else ("MODEL UNAVAILABLE" if not results else "INCONCLUSIVE")
     else:
         fake_count = predictions.count("likely_manipulated")
         real_count = predictions.count("likely_real")
@@ -248,22 +293,27 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
     try:
         diagnostic = analyze_image_bytes(content, _sanitize_filename(file.filename))
     except (OSError, ValueError, UnidentifiedImageError, cv2.error) as exc:
-        raise HTTPException(status_code=400, detail=f"Unable to analyze image: {exc}") from exc
+        logger.info("Image analysis failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="Unable to analyze image.") from exc
 
     # Phase 9: Real model inference integration
     prediction = score = real_probability = fake_probability = model_version = score_type = None
     checkpoint_task = label_semantics = domain_warning = None
     processing_time_ms = None
-    inference_available = inference_model.available
     ai_model_results = ai_model_registry.predict_all(content)
-    deepfake_model_results = deepfake_model_registry.predict_all(content)
+    face_detected = bool(diagnostic["metadata"]["face_detected"])
+    deepfake_input = diagnostic["face_crop_bytes"] if face_detected else None
+    deepfake_model_results = (
+        deepfake_model_registry.predict_all(deepfake_input)
+        if deepfake_input is not None
+        else {}
+    )
+    inference_available = inference_model.available
     ai_availability = ai_model_registry.availability()
     deepfake_availability = deepfake_model_registry.availability()
 
-    if inference_available:
-        result = deepfake_model_results.get("rgb")
-        if result is None:
-            raise HTTPException(status_code=503, detail="Deepfake RGB model became unavailable during analysis.")
+    result = deepfake_model_results.get("rgb")
+    if result is not None:
         checkpoint_task = result.task
         label_semantics = result.label_semantics
         score_type = result.score_type
@@ -280,11 +330,19 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         else:
             message = "Separate AI-generated and deepfake detection tasks completed."
     else:
-        checkpoint_task = label_semantics = domain_warning = None
-        status = "diagnostic_complete"
+        checkpoint_task = inference_model.task or None
+        label_semantics = inference_model.label_semantics or None
+        model_version = inference_model.model_version or None
+        score_type = None
+        domain_warning = (
+            "No face was detected; the face manipulation checkpoint was not applicable."
+            if inference_available
+            else None
+        )
+        status = "inference_complete" if inference_available else "diagnostic_complete"
         message = (
             "Diagnostic FFT, DWT, ELA, and face-crop outputs are available. "
-            f"No trained model is loaded ({inference_model.status_message}). "
+            f"No applicable face model result is available ({inference_model.status_message}). "
             "These diagnostics are not a deepfake classification."
         )
 
@@ -299,14 +357,22 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         "Manipulated versus authentic",
         deepfake_model_registry,
         deepfake_model_results,
+        applicable=face_detected,
     )
     model_responses = [
-        _model_response(key, model, deepfake_model_results.get(key))
+        _model_response(
+            key,
+            model,
+            deepfake_model_results.get(key),
+            applicable=face_detected,
+        )
         for key, model in deepfake_model_registry.models.items()
     ]
     model_agreement = deepfake_detection.model_agreement
     if not inference_available:
         verdict_state = "DIAGNOSTIC ONLY"
+    elif prediction is None:
+        verdict_state = "NOT APPLICABLE"
     elif prediction == "inconclusive":
         verdict_state = "INCONCLUSIVE"
     elif prediction == "likely_manipulated":
@@ -370,7 +436,7 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
 
 @app.post("/api/v1/analyze", response_model=AnalysisResponse)
 @limiter.limit("10/minute")  # 10 uploads per minute per IP
-async def analyze_image(request: Request, file: Annotated[UploadFile, File(...)]) -> AnalysisResponse:
+async def analyze_image(request: Request, file: UploadFile = File(...)) -> AnalysisResponse:
     return await _analyze(file)
 
 
@@ -380,7 +446,7 @@ async def analyze_image(request: Request, file: Annotated[UploadFile, File(...)]
     deprecated=True,
 )
 @limiter.limit("10/minute")
-async def predict_compatibility(request: Request, file: Annotated[UploadFile, File(...)]) -> AnalysisResponse:
+async def predict_compatibility(request: Request, file: UploadFile = File(...)) -> AnalysisResponse:
     """Deprecated compatibility alias for /api/v1/analyze."""
 
     return await _analyze(file)

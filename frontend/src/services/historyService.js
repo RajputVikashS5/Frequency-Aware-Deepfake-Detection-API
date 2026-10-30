@@ -6,6 +6,8 @@ import { appConfig } from '../config/appConfig';
  */
 
 const STORAGE_KEY = appConfig.storageKeys.history;
+const MAX_HISTORY_RECORDS = 50;
+const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
 
 // In-memory session cache for full objects in active session
 const sessionCache = new Map();
@@ -77,8 +79,15 @@ export const historyService = {
         spectralProfile: Array.isArray(analysisResult.spectralProfile) ? analysisResult.spectralProfile : [],
       };
 
-      const updated = [record, ...filtered].slice(0, 50); // Keep max 50 records
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      const updated = [record, ...filtered].slice(0, MAX_HISTORY_RECORDS);
+      while (updated.length > 0) {
+        const serialized = JSON.stringify(updated);
+        if (serialized.length <= MAX_HISTORY_BYTES) {
+          localStorage.setItem(STORAGE_KEY, serialized);
+          break;
+        }
+        updated.pop();
+      }
     } catch (e) {
       console.warn('Failed to save analysis to localStorage:', e);
     }

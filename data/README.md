@@ -79,6 +79,11 @@ their image-only boundary are documented in
 after the generated manifests, provenance, exclusions, and split-integrity
 reports have been reviewed.
 
+Downloaded datasets, generated metadata reports, and evaluation outputs are
+local-only artifacts and are excluded from Git. Keep reproducible preparation
+commands and provenance files in the repository instead of committing dataset
+images or generated report dumps.
+
 ## Preprocessing settings
 
 `backend.app.preprocessing.preprocess_rgb` converts images to RGB, resizes to

@@ -68,7 +68,8 @@ export default function ResultsPage() {
     );
   }
 
-  const isDiagnostic = !analysis.inferenceAvailable;
+  const isDiagnostic =
+    !analysis.inferenceAvailable || analysis.verdictState === 'NOT APPLICABLE';
 
   return (
     <PageLayout isDiagnostic={isDiagnostic}>
@@ -165,8 +166,11 @@ export default function ResultsPage() {
             </div>
           </div>
         ) : (
+          <>
           {/* Dual Detection Results: Deepfake vs AI-Generated */}
-          {analysis.separateDetections && !isDiagnostic && (
+          {analysis.separateDetections &&
+            Object.keys(analysis.separateDetections).length > 0 &&
+            !isDiagnostic && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Card 1: Deepfake (Manipulated) Detection */}
               <div className="rounded-xl border border-border bg-card p-5 space-y-3">
@@ -214,7 +218,7 @@ export default function ResultsPage() {
                 <div className="p-3 rounded-lg bg-canvas border border-border/50">
                   <div className="text-xs text-slate-400 font-mono">Verdict</div>
                   <div className="text-lg font-bold font-mono text-slate-100">
-                    {analysis.separateDetections.ai_generation?.verdict || 'Inconclusive (32x32 model)'}
+                    {analysis.separateDetections.ai_generation?.verdict || 'Unavailable'}
                   </div>
                   <div className="text-[11px] text-slate-500 font-mono mt-1">
                     Detects Stable Diffusion, DALL-E, Midjourney outputs
@@ -270,7 +274,7 @@ export default function ResultsPage() {
                 <span>Timestamp: {formatDate(analysis.timestamp)}</span>
               </div>
               <div>
-                <span>Latency: {analysis.processingTimeMs || 1200} ms</span>
+                <span>Latency: {analysis.processingTimeMs ? `${analysis.processingTimeMs} ms` : 'N/A'}</span>
               </div>
               <div>
                 <span>Score Type: {analysis.scoreType || 'Model score'}</span>
@@ -284,6 +288,7 @@ export default function ResultsPage() {
               </div>
             )}
           </div>
+          </>
         )}
 
         {analysis.models?.length > 0 && (

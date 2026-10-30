@@ -33,7 +33,7 @@ def decode_image(file_bytes: bytes) -> np.ndarray:
 
 
 def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, Dict[str, int]]:
-    """Detect frontal face and crop with margin. Falls back to center crop."""
+    """Detect a frontal face and crop with margin for diagnostics."""
     h, w = bgr_img.shape[:2]
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
 
@@ -336,4 +336,5 @@ def analyze_image_bytes(file_bytes: bytes, filename: str) -> Dict[str, Any]:
         "findings": findings,
         "extended": extended,
         "dwt_levels": dwt_levels,
+        "face_crop_bytes": cv2.imencode(".png", bgr_face)[1].tobytes(),
     }
