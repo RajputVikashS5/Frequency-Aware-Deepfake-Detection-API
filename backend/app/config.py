@@ -27,6 +27,28 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_MODEL_CHECKPOINT = (
+    _PROJECT_ROOT
+    / "experiments"
+    / "rgb-baseline"
+    / "faceforensicspp-c23-r2-v1-limited-clean"
+    / "faceforensicspp-rgb-resnet18-best.pt"
+)
+_DEFAULT_CIFAKE_RGB_CHECKPOINT = (
+    _PROJECT_ROOT / "experiments" / "rgb-baseline" / "cifake-image-v2"
+    / "cifake-rgb-resnet18-best.pt"
+)
+_DEFAULT_CIFAKE_FFT_CHECKPOINT = (
+    _PROJECT_ROOT / "experiments" / "fft-baseline" / "cifake-image-v2"
+    / "cifake-fft-resnet18-best.pt"
+)
+_DEFAULT_CIFAKE_FUSION_CHECKPOINT = (
+    _PROJECT_ROOT / "experiments" / "fusion-baseline" / "cifake-image-v2"
+    / "cifake-fusion-resnet18-best.pt"
+)
+_DEFAULT_DEEPFAKE_RGB_CHECKPOINT = _DEFAULT_MODEL_CHECKPOINT
+
 
 def _bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -68,8 +90,28 @@ class Settings:
         "R2_FACEFORENSICSPP_PREFIX", "faceforensics++"
     )
     r2_cifake_prefix: str = os.getenv("R2_CIFAKE_PREFIX", "CIfake")
-    model_checkpoint_path: str = os.getenv("MODEL_CHECKPOINT_PATH", "")
+    # An empty MODEL_CHECKPOINT_PATH intentionally selects diagnostics-only mode.
+    model_checkpoint_path: str = os.getenv("MODEL_CHECKPOINT_PATH", str(_DEFAULT_MODEL_CHECKPOINT))
     model_version: str = os.getenv("MODEL_VERSION", "")
+    ai_rgb_model_checkpoint_path: str = os.getenv(
+        "RGB_MODEL_CHECKPOINT_PATH", str(_DEFAULT_CIFAKE_RGB_CHECKPOINT)
+    )
+    ai_fft_model_checkpoint_path: str = os.getenv(
+        "FFT_MODEL_CHECKPOINT_PATH", str(_DEFAULT_CIFAKE_FFT_CHECKPOINT)
+    )
+    ai_fusion_model_checkpoint_path: str = os.getenv(
+        "FUSION_MODEL_CHECKPOINT_PATH", str(_DEFAULT_CIFAKE_FUSION_CHECKPOINT)
+    )
+    deepfake_rgb_model_checkpoint_path: str = os.getenv(
+        "DEEPFAKE_RGB_MODEL_CHECKPOINT_PATH",
+        os.getenv("MODEL_CHECKPOINT_PATH", str(_DEFAULT_DEEPFAKE_RGB_CHECKPOINT)),
+    )
+    deepfake_fft_model_checkpoint_path: str = os.getenv(
+        "DEEPFAKE_FFT_MODEL_CHECKPOINT_PATH", ""
+    )
+    deepfake_fusion_model_checkpoint_path: str = os.getenv(
+        "DEEPFAKE_FUSION_MODEL_CHECKPOINT_PATH", ""
+    )
 
     def __post_init__(self) -> None:
         if self.allowed_frontend_origins is None:

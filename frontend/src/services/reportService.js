@@ -24,6 +24,8 @@ Analysis ID:         ${analysis.id}
 Timestamp:           ${analysis.timestamp}
 Processing Mode:     ${analysis.isDemo ? 'DEMO MODE (SYNTHETIC BENCHMARK)' : 'LIVE INFERENCE'}
 Model Version:       ${analysis.modelVersion || 'ResNet18-FFT-DWT-v1.0'}
+VERDICT STATE:        ${analysis.verdictState || analysis.verdict || 'Unavailable'}
+MODEL AGREEMENT:      ${analysis.modelAgreement || 'Unavailable'}
 
 FILE METADATA
 ----------------------------------------------------------------------
@@ -43,6 +45,15 @@ Wavelet DWT Score:   ${analysis.scores?.dwtBranch}%
 DIAGNOSTIC FINDINGS
 ----------------------------------------------------------------------
 ${(analysis.findings || []).map((f, i) => `${i + 1}. ${f}`).join('\n')}
+
+MODEL COMPARISON
+----------------------------------------------------------------------
+${(analysis.models || []).map((model) => [
+  `${model.name || model.key}: ${model.available ? (model.prediction || 'No prediction') : 'Model unavailable'}`,
+  `  Real=${typeof model.real_probability === 'number' ? (model.real_probability * 100).toFixed(1) : 'N/A'}%`,
+  `  Fake=${typeof model.fake_probability === 'number' ? (model.fake_probability * 100).toFixed(1) : 'N/A'}%`,
+  `  Task=${model.task || 'N/A'}; Checkpoint=${model.model_version || 'N/A'}`,
+].join('\n')).join('\n')}
 
 RESEARCH & RESPONSIBLE USE DISCLAIMER
 ----------------------------------------------------------------------

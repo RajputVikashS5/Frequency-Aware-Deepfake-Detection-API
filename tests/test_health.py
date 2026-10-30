@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
-from backend.app.main import app
+from backend.app.main import app, inference_model
 from backend.app import forensics
 
 client = TestClient(app)
@@ -15,7 +15,7 @@ def test_health_endpoint_returns_ok():
     payload = response.json()
     assert payload['status'] == 'ok'
     assert 'service' in payload
-    assert payload['inference_available'] is False
+    assert payload['inference_available'] is inference_model.available
 
 
 def test_analyze_image_endpoint_returns_diagnostic_only_response():
@@ -27,13 +27,20 @@ def test_analyze_image_endpoint_returns_diagnostic_only_response():
     response = client.post('/api/v1/analyze', files=files)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "diagnostic_complete"
-    assert data["inference_available"] is False
-    assert data["model_version"] is None
+    assert data["inference_available"] is inference_model.available
+    assert data["status"] == (
+        "inference_complete" if inference_model.available else "diagnostic_complete"
+    )
+    assert (data["model_version"] is not None) is inference_model.available
     assert "is_fake" not in data
     assert "confidence_pct" not in data
     assert "calibrated_score" not in data
-    assert "not a deepfake classification" in data["message"]
+    if inference_model.available:
+        assert data["prediction"] in {"likely_real", "likely_manipulated", "inconclusive"}
+        assert abs(data["real_probability"] + data["fake_probability"] - 1.0) < 1e-5
+        assert data["checkpoint_task"] in {"faceforensicspp", "cifake", "forgerynet"}
+    else:
+        assert "not a deepfake classification" in data["message"]
     diagnostic_text = " ".join(data["findings"]).lower()
     assert not any(term in diagnostic_text for term in ("verdict", "score", "confidence", "authentic", "generative"))
     assert 'visualizations' in data

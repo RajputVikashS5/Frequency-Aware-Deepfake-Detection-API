@@ -32,6 +32,7 @@ export const analysisService = {
         const inferenceAvailable = raw.inference_available === true;
         const isManipulated = raw.prediction === 'likely_manipulated';
         const isInconclusive = raw.prediction === 'inconclusive';
+        const isManipulationModel = ['faceforensicspp', 'forgerynet'].includes(raw.checkpoint_task);
         result = {
           id: `srv-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           timestamp: new Date().toISOString(),
@@ -39,7 +40,9 @@ export const analysisService = {
           isDemo: false,
           isDiagnostic: !inferenceAvailable,
           disclaimer: inferenceAvailable
-            ? 'EXPERIMENTAL RGB BASELINE — UNCALIBRATED MODEL OUTPUT'
+            ? isManipulationModel
+              ? 'FACEFORENSICS++ RGB MODEL — MANIPULATED VS REAL'
+              : 'AI-GENERATED VS REAL MODEL — UNCALIBRATED OUTPUT'
             : 'DIAGNOSTIC OUTPUT — NOT A VALIDATED MODEL PREDICTION',
           verdict: inferenceAvailable
             ? (isInconclusive ? 'Inconclusive' : (isManipulated ? 'Likely Manipulated' : 'Likely Real'))
@@ -47,6 +50,14 @@ export const analysisService = {
           isManipulated: inferenceAvailable && !isInconclusive ? isManipulated : null,
           isInconclusive,
           confidencePct: inferenceAvailable && typeof raw.score === 'number' ? raw.score * 100 : null,
+          realProbabilityPct:
+            inferenceAvailable && typeof raw.real_probability === 'number'
+              ? raw.real_probability * 100
+              : null,
+          fakeProbabilityPct:
+            inferenceAvailable && typeof raw.fake_probability === 'number'
+              ? raw.fake_probability * 100
+              : null,
           scoreType: raw.score_type || 'No classifier score available',
           scores: null,
           metadata: {
@@ -71,6 +82,26 @@ export const analysisService = {
           status: raw.status,
           inferenceAvailable,
           diagnosticMessage: raw.message,
+          verdictState: raw.verdict_state || (inferenceAvailable ? 'INCONCLUSIVE' : 'DIAGNOSTIC ONLY'),
+          modelAgreement: raw.model_agreement || null,
+          models: Array.isArray(raw.models) ? raw.models : [],
+          modelAvailability: Array.isArray(raw.model_availability) ? raw.model_availability : [],
+          detections: Array.isArray(raw.detections) ? raw.detections : [],
+          extended: raw.extended || null,
+          dwtLevels: raw.dwt_levels || {},
+          // Separate detection channels
+          separateDetections: raw.separate_detections || {
+            deepfake_manipulation: {
+              verdict: isManipulated ? 'Likely Manipulated' : (isInconclusive ? 'Inconclusive' : 'Likely Authentic'),
+              task: 'deepfake_manipulation_vs_authentic',
+              labelSemantics: 'Manipulated versus authentic',
+            },
+            ai_generation: {
+              verdict: 'Inconclusive (Requires 32x32 native image)',
+              task: 'ai_generated_vs_real',
+              labelSemantics: 'AI-generated versus real',
+            },
+          },
         };
       } catch (err) {
         console.error('API call failed, unable to complete analysis:', err);

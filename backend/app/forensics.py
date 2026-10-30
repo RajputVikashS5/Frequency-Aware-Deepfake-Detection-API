@@ -30,11 +30,6 @@ def decode_image(file_bytes: bytes) -> np.ndarray:
     if img is None:
         raise ValueError("Invalid image file: could not decode image format.")
     return img
-    nparr = np.frombuffer(file_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Invalid image file: could not decode image format.")
-    return img
 
 
 def detect_and_crop_face(bgr_img: np.ndarray) -> tuple[np.ndarray, bool, Dict[str, int]]:
@@ -111,7 +106,6 @@ def compute_fft_spectrum(gray_face: np.ndarray) -> Tuple[np.ndarray, List[Dict[s
 
 def compute_dwt_subbands(gray_face: np.ndarray) -> np.ndarray:
     """Compute 2D Haar Discrete Wavelet Transform and return 2x2 tiled subbands."""
-    """Compute 2D Haar Discrete Wavelet Transform and return 2x2 tiled subbands."""
     face_float = gray_face.astype(np.float32) / 255.0
     coeffs2 = pywt.dwt2(face_float, "haar")
     LL, (LH, HL, HH) = coeffs2
@@ -136,6 +130,36 @@ def compute_dwt_subbands(gray_face: np.ndarray) -> np.ndarray:
     grid = np.vstack([top_row, bottom_row])
 
     return grid
+
+
+def compute_dwt_levels(gray_face: np.ndarray) -> Dict[str, str]:
+    """Encode level-one and level-two Haar coefficient grids separately."""
+    face_float = gray_face.astype(np.float32) / 255.0
+    coeffs = pywt.wavedec2(face_float, "haar", level=2)
+    approximation, details_level_2, details_level_1 = coeffs
+
+    def grid_for(level: int) -> np.ndarray:
+        if level == 2:
+            bands = (approximation, *details_level_2)
+        else:
+            level_1_approximation = pywt.idwt2(
+                (approximation, details_level_2), "haar"
+            )
+            bands = (level_1_approximation, *details_level_1)
+        rendered = []
+        for band in bands:
+            rendered.append(
+                cv2.normalize(np.abs(band), None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            )
+        height = max(image.shape[0] for image in rendered)
+        width = max(image.shape[1] for image in rendered)
+        resized = [cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA) for image in rendered]
+        return np.hstack(resized)
+
+    return {
+        "level_1": image_to_base64_data_uri(grid_for(1)),
+        "level_2": image_to_base64_data_uri(grid_for(2)),
+    }
 
 
 def compute_spatial_analysis(bgr_face: np.ndarray) -> np.ndarray:
@@ -167,8 +191,95 @@ def compute_spatial_analysis(bgr_face: np.ndarray) -> np.ndarray:
     return blended
 
 
+def compute_extended_forensics(bgr_img: np.ndarray) -> Dict[str, Any]:
+    """Return measured channel, frequency, compression, noise, and edge evidence."""
+    rgb = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+    gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+    histogram = [{"intensity": intensity} for intensity in range(256)]
+    channel_stats = {}
+    for channel_name, channel in zip(("red", "green", "blue"), cv2.split(rgb)):
+        counts, _ = np.histogram(channel, bins=256, range=(0, 256))
+        for intensity in range(256):
+            histogram[intensity][channel_name] = int(counts[intensity])
+        channel_stats[channel_name] = {
+            "mean": round(float(np.mean(channel)), 3),
+            "std": round(float(np.std(channel)), 3),
+        }
+
+    fshift = np.fft.fftshift(np.fft.fft2(gray.astype(np.float32)))
+    magnitude = np.log1p(np.abs(fshift))
+    cy, cx = magnitude.shape[0] // 2, magnitude.shape[1] // 2
+    horizontal = magnitude[cy, :]
+    vertical = magnitude[:, cx]
+    normalized = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    pil_img = Image.fromarray(rgb)
+    compressed_buffer = io.BytesIO()
+    pil_img.save(compressed_buffer, "JPEG", quality=90)
+    recompressed = cv2.cvtColor(
+        np.array(Image.open(io.BytesIO(compressed_buffer.getvalue()))),
+        cv2.COLOR_RGB2BGR,
+    )
+    ela_gray = cv2.cvtColor(cv2.absdiff(bgr_img, recompressed), cv2.COLOR_BGR2GRAY)
+    ela_enhanced = cv2.convertScaleAbs(ela_gray, alpha=ELA_ENHANCEMENT_FACTOR)
+
+    denoised = cv2.GaussianBlur(bgr_img, (3, 3), 0)
+    noise = cv2.absdiff(bgr_img, denoised)
+    noise_gray = cv2.cvtColor(noise, cv2.COLOR_BGR2GRAY)
+    noise_heatmap = cv2.applyColorMap(
+        cv2.normalize(noise_gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8),
+        cv2.COLORMAP_TURBO,
+    )
+    edges = cv2.Canny(gray, 100, 200)
+    sobel_x = cv2.convertScaleAbs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+    sobel_y = cv2.convertScaleAbs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
+    laplacian = cv2.convertScaleAbs(cv2.Laplacian(gray, cv2.CV_32F))
+
+    return {
+        "histogram": histogram,
+        "channel_stats": channel_stats,
+        "brightness": round(float(np.mean(gray)), 3),
+        "contrast": round(float(np.std(gray)), 3),
+        "frequency_profiles": {
+            "horizontal": [
+                {"frequency": int(index), "energy": round(float(value), 4)}
+                for index, value in enumerate(horizontal)
+            ],
+            "vertical": [
+                {"frequency": int(index), "energy": round(float(value), 4)}
+                for index, value in enumerate(vertical)
+            ],
+        },
+        "frequency_energy": {
+            "low": round(float(np.mean(magnitude[: magnitude.shape[0] // 3, :])), 4),
+            "mid": round(float(np.mean(magnitude[magnitude.shape[0] // 3 : 2 * magnitude.shape[0] // 3, :])), 4),
+            "high": round(float(np.mean(magnitude[2 * magnitude.shape[0] // 3 :, :])), 4),
+            "mean": round(float(np.mean(magnitude)), 4),
+            "std": round(float(np.std(magnitude)), 4),
+        },
+        "metrics": {
+            "ela_quality": 90,
+            "ela_mean": round(float(np.mean(ela_gray)), 4),
+            "noise_mean": round(float(np.mean(noise_gray)), 4),
+            "noise_std": round(float(np.std(noise_gray)), 4),
+            "sharpness": round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 4),
+            "edge_density": round(float(np.mean(edges > 0)), 4),
+        },
+        "visualizations": {
+            "ela_grayscale": image_to_base64_data_uri(cv2.cvtColor(ela_gray, cv2.COLOR_GRAY2BGR)),
+            "ela_heatmap": image_to_base64_data_uri(cv2.applyColorMap(ela_enhanced, cv2.COLORMAP_TURBO)),
+            "noise_residual": image_to_base64_data_uri(noise),
+            "noise_heatmap": image_to_base64_data_uri(noise_heatmap),
+            "edge_map": image_to_base64_data_uri(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)),
+            "sobel_x": image_to_base64_data_uri(cv2.cvtColor(sobel_x, cv2.COLOR_GRAY2BGR)),
+            "sobel_y": image_to_base64_data_uri(cv2.cvtColor(sobel_y, cv2.COLOR_GRAY2BGR)),
+            "laplacian": image_to_base64_data_uri(cv2.cvtColor(laplacian, cv2.COLOR_GRAY2BGR)),
+            "fft_magnitude": image_to_base64_data_uri(cv2.applyColorMap(normalized, cv2.COLORMAP_MAGMA)),
+        },
+    }
+
+
 def image_to_base64_data_uri(img_bgr: np.ndarray, format_ext: str = ".jpg") -> str:
-    """Encode BGR image to base64 Data URI."""
     """Encode BGR image to base64 Data URI."""
     success, buffer = cv2.imencode(format_ext, img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
     if not success:
@@ -192,7 +303,9 @@ def analyze_image_bytes(file_bytes: bytes, filename: str) -> Dict[str, Any]:
     # Streams
     vis_fft, radial_profile = compute_fft_spectrum(gray_face)
     vis_dwt = compute_dwt_subbands(gray_face)
+    dwt_levels = compute_dwt_levels(gray_face)
     vis_spatial = compute_spatial_analysis(bgr_face)
+    extended = compute_extended_forensics(bgr_img)
 
     findings = [
         f"Face detected: {'yes' if face_found else 'no'}"
@@ -221,4 +334,6 @@ def analyze_image_bytes(file_bytes: bytes, filename: str) -> Dict[str, Any]:
             for item in radial_profile
         ],
         "findings": findings,
+        "extended": extended,
+        "dwt_levels": dwt_levels,
     }

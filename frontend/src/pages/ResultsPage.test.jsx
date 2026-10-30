@@ -119,7 +119,7 @@ describe('ResultsPage Component', () => {
 
     // Classification Verdict card and score cards should be rendered
     expect(screen.getByText(/forensic classification verdict/i)).toBeInTheDocument();
-    expect(screen.getByText(/likely manipulated/i)).toBeInTheDocument();
+    expect(screen.getByText(/fake \/ manipulated/i)).toBeInTheDocument();
     expect(screen.getByText(/88.6%/i)).toBeInTheDocument();
     expect(screen.getByText(/spatial rgb branch/i)).toBeInTheDocument();
     expect(screen.getByText(/2d fourier \(fft\) branch/i)).toBeInTheDocument();

@@ -4,6 +4,7 @@ import io
 import os
 import re
 import sys
+import time
 import warnings
 from pathlib import Path
 from typing import Annotated
@@ -16,14 +17,24 @@ if _repo_root not in sys.path:
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from PIL import Image, UnidentifiedImageError
-from starlette.concurrency import run_in_threadpool
 import cv2
 
 from .config import settings
 from .forensics import analyze_image_bytes
 from .model_inference import RGBBaselineInference
-from .schemas import AnalysisResponse, ErrorResponse, HealthResponse
+from .model_registry import FFTBaselineInference, FusionBaselineInference, ModelRegistry
+from .schemas import (
+    AnalysisResponse,
+    ErrorResponse,
+    HealthResponse,
+    ModelAvailabilityResponse,
+    ModelResultResponse,
+    TaskDetectionResponse,
+)
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg": {"JPEG"},
@@ -52,8 +63,48 @@ app = FastAPI(
     version="1.0.0",
     description="Frequency-aware image deepfake detection API with diagnostic spatial, Fourier, and wavelet analysis.",
 )
+# Rate limiting setup
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Phase 9: Load verified model checkpoint if configured
-inference_model = RGBBaselineInference(settings.model_checkpoint_path, settings.model_version) if settings.model_checkpoint_path else RGBBaselineInference("", "")
+inference_model = (
+    RGBBaselineInference(
+        settings.deepfake_rgb_model_checkpoint_path,
+        settings.model_version,
+    )
+    if settings.deepfake_rgb_model_checkpoint_path
+    else RGBBaselineInference("", "")
+)
+ai_model_registry = ModelRegistry(
+    {
+        "rgb": RGBBaselineInference(settings.ai_rgb_model_checkpoint_path, ""),
+        "fft": FFTBaselineInference("fft", "FFT ResNet-18", settings.ai_fft_model_checkpoint_path, ""),
+        "fusion": FusionBaselineInference(
+            "fusion", "RGB + FFT Fusion", settings.ai_fusion_model_checkpoint_path, ""
+        ),
+    },
+    expected_tasks={"cifake"},
+)
+deepfake_model_registry = ModelRegistry(
+    {
+        "rgb": inference_model,
+        "fft": FFTBaselineInference(
+            "deepfake-fft",
+            "Deepfake FFT ResNet-18",
+            settings.deepfake_fft_model_checkpoint_path,
+            "",
+        ),
+        "fusion": FusionBaselineInference(
+            "deepfake-fusion",
+            "Deepfake RGB + FFT Fusion",
+            settings.deepfake_fusion_model_checkpoint_path,
+            "",
+        ),
+    },
+    expected_tasks={"faceforensicspp", "forgerynet"},
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +112,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Accept", "Content-Type"],
+    # Security: warn about dangerous origins
+    # "null" origin comes from file:// URLs - avoid in production
 )
 
 
@@ -88,6 +141,10 @@ def _validate_image(data: bytes, content_type: str) -> tuple[int, int, str]:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     if len(data) > settings.max_upload_bytes:
         raise HTTPException(status_code=413, detail="Uploaded file exceeds the configured size limit.")
+    # Validate content_type format to prevent header injection / DoS
+    if not content_type or not isinstance(content_type, str) or len(content_type) > 128:
+        raise HTTPException(status_code=415, detail="Invalid content type header.")
+    content_type = content_type.strip().lower()
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported content type. Use JPEG, PNG, WEBP, or BMP.")
 
@@ -112,6 +169,77 @@ def _validate_image(data: bytes, content_type: str) -> tuple[int, int, str]:
     return width, height, image_format
 
 
+def _model_response(
+    key: str,
+    model: object,
+    result: object | None,
+) -> ModelResultResponse:
+    return ModelResultResponse(
+        key=key,
+        name=getattr(model, "name", key.upper()),
+        available=result is not None,
+        prediction=result.prediction if result else None,
+        real_probability=result.real_probability if result else None,
+        fake_probability=result.fake_probability if result else None,
+        score_type=result.score_type if result else None,
+        model_version=result.model_version if result else None,
+        task=result.task if result else None,
+        label_semantics=result.label_semantics if result else None,
+        processing_time_ms=result.processing_time_ms if result else None,
+        reason=result.reason if result else model.status_message,
+        calibrated=result.calibrated if result else False,
+        calibration_method=result.calibration_method if result else None,
+        calibration_dataset=result.calibration_dataset if result else None,
+    )
+
+
+def _task_detection(
+    task: str,
+    label_semantics: str,
+    registry: ModelRegistry,
+    results: dict[str, object],
+) -> TaskDetectionResponse:
+    responses = [
+        _model_response(key, model, results.get(key))
+        for key, model in registry.models.items()
+    ]
+    predictions = [
+        result.prediction
+        for result in results.values()
+        if result.prediction in {"likely_real", "likely_manipulated"}
+    ]
+    if not predictions:
+        verdict = "MODEL UNAVAILABLE" if not results else "INCONCLUSIVE"
+    else:
+        fake_count = predictions.count("likely_manipulated")
+        real_count = predictions.count("likely_real")
+        if fake_count == real_count:
+            verdict = "INCONCLUSIVE"
+        elif fake_count > real_count:
+            verdict = "LIKELY AI-GENERATED" if task == "ai_generated_vs_real" else "LIKELY MANIPULATED"
+        else:
+            verdict = "LIKELY REAL" if task == "ai_generated_vs_real" else "LIKELY AUTHENTIC"
+    agreement = None
+    if len(predictions) >= 2:
+        agreement = "agree" if len(set(predictions)) == 1 else "disagree"
+    available = bool(results)
+    if not available:
+        warning = "No trained checkpoint is configured for this detection task."
+    elif any(not response.calibrated for response in responses if response.available):
+        warning = "Scores are uncalibrated model outputs, not validated probabilities."
+    else:
+        warning = None
+    return TaskDetectionResponse(
+        task=task,
+        label_semantics=label_semantics,
+        verdict=verdict,
+        available=available,
+        model_agreement=agreement,
+        models=responses,
+        warning=warning,
+    )
+
+
 async def _analyze(file: UploadFile) -> AnalysisResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file selected.")
@@ -123,35 +251,34 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         raise HTTPException(status_code=400, detail=f"Unable to analyze image: {exc}") from exc
 
     # Phase 9: Real model inference integration
-    prediction = score = model_version = score_type = None
+    prediction = score = real_probability = fake_probability = model_version = score_type = None
     checkpoint_task = label_semantics = domain_warning = None
     processing_time_ms = None
     inference_available = inference_model.available
+    ai_model_results = ai_model_registry.predict_all(content)
+    deepfake_model_results = deepfake_model_registry.predict_all(content)
+    ai_availability = ai_model_registry.availability()
+    deepfake_availability = deepfake_model_registry.availability()
 
     if inference_available:
-        result = await run_in_threadpool(inference_model.predict, content)
+        result = deepfake_model_results.get("rgb")
+        if result is None:
+            raise HTTPException(status_code=503, detail="Deepfake RGB model became unavailable during analysis.")
         checkpoint_task = result.task
         label_semantics = result.label_semantics
         score_type = result.score_type
-        prediction = (
-            result.prediction
-            if result.task != "cifake" or result.prediction == "inconclusive"
-            else None
-        )
-        score = result.score if result.task != "cifake" else None
+        prediction = result.prediction
+        score = result.score
+        real_probability = result.real_probability
+        fake_probability = result.fake_probability
         model_version = result.model_version
         processing_time_ms = result.processing_time_ms
         status = "inference_complete"
         domain_warning = result.reason
-        if result.task == "cifake" and domain_warning is None:
-            domain_warning = (
-                "This checkpoint was trained on 32x32 CIFAKE images "
-                "(AI-generated versus real), so it is not valid for manipulated-image labeling."
-            )
         if result.prediction == "inconclusive":
             message = domain_warning or "The model could not make a confident in-domain classification."
         else:
-            message = "Model inference completed. The score is not calibrated."
+            message = "Separate AI-generated and deepfake detection tasks completed."
     else:
         checkpoint_task = label_semantics = domain_warning = None
         status = "diagnostic_complete"
@@ -161,11 +288,39 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
             "These diagnostics are not a deepfake classification."
         )
 
+    ai_detection = _task_detection(
+        "ai_generated_vs_real",
+        "AI-generated versus real",
+        ai_model_registry,
+        ai_model_results,
+    )
+    deepfake_detection = _task_detection(
+        "deepfake_manipulation_vs_authentic",
+        "Manipulated versus authentic",
+        deepfake_model_registry,
+        deepfake_model_results,
+    )
+    model_responses = [
+        _model_response(key, model, deepfake_model_results.get(key))
+        for key, model in deepfake_model_registry.models.items()
+    ]
+    model_agreement = deepfake_detection.model_agreement
+    if not inference_available:
+        verdict_state = "DIAGNOSTIC ONLY"
+    elif prediction == "inconclusive":
+        verdict_state = "INCONCLUSIVE"
+    elif prediction == "likely_manipulated":
+        verdict_state = "LIKELY MANIPULATED"
+    else:
+        verdict_state = "LIKELY REAL"
+
     return AnalysisResponse(
         status=status,
         inference_available=inference_available,
         prediction=prediction,
         score=score,
+        real_probability=real_probability,
+        fake_probability=fake_probability,
         score_type=score_type,
         model_version=model_version,
         checkpoint_task=checkpoint_task,
@@ -177,11 +332,45 @@ async def _analyze(file: UploadFile) -> AnalysisResponse:
         visualizations=diagnostic["visualizations"],
         spectral_profile=diagnostic["spectral_profile"],
         findings=diagnostic["findings"],
+        verdict_state=verdict_state,
+        model_agreement=model_agreement,
+        models=model_responses,
+        model_availability=[
+            ModelAvailabilityResponse(
+                key=item.key,
+                name=item.name,
+                available=item.available,
+                message=item.message,
+                task=item.task,
+                checkpoint_version=item.checkpoint_version,
+            )
+            for item in [*ai_availability, *deepfake_availability]
+        ],
+        detections=[ai_detection, deepfake_detection],
+        extended=diagnostic.get("extended"),
+        dwt_levels=diagnostic.get("dwt_levels", {}),
+        separate_detections={
+            "deepfake_manipulation": {
+                "verdict": deepfake_detection.verdict,
+                "models": [m.model_dump() for m in deepfake_detection.models],
+                "agreement": deepfake_detection.model_agreement,
+                "task": "deepfake_manipulation_vs_authentic",
+                "label_semantics": "Manipulated versus authentic",
+            },
+            "ai_generation": {
+                "verdict": ai_detection.verdict,
+                "models": [m.model_dump() for m in ai_detection.models],
+                "agreement": ai_detection.model_agreement,
+                "task": "ai_generated_vs_real",
+                "label_semantics": "AI-generated versus real",
+            },
+        },
     )
 
 
 @app.post("/api/v1/analyze", response_model=AnalysisResponse)
-async def analyze_image(file: Annotated[UploadFile, File(...)]) -> AnalysisResponse:
+@limiter.limit("10/minute")  # 10 uploads per minute per IP
+async def analyze_image(request: Request, file: Annotated[UploadFile, File(...)]) -> AnalysisResponse:
     return await _analyze(file)
 
 
@@ -190,7 +379,8 @@ async def analyze_image(file: Annotated[UploadFile, File(...)]) -> AnalysisRespo
     response_model=AnalysisResponse,
     deprecated=True,
 )
-async def predict_compatibility(file: Annotated[UploadFile, File(...)]) -> AnalysisResponse:
+@limiter.limit("10/minute")
+async def predict_compatibility(request: Request, file: Annotated[UploadFile, File(...)]) -> AnalysisResponse:
     """Deprecated compatibility alias for /api/v1/analyze."""
 
     return await _analyze(file)

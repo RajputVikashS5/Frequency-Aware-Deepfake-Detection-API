@@ -1,7 +1,12 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 
-export default function PredictionBadge({ isManipulated, isInconclusive = false, size = 'default' }) {
+export default function PredictionBadge({
+  isManipulated,
+  isInconclusive = false,
+  size = 'default',
+  task = 'manipulation' // 'manipulation' | 'ai_generation'
+}) {
   const isLarge = size === 'large';
 
   if (isInconclusive) {
@@ -17,6 +22,10 @@ export default function PredictionBadge({ isManipulated, isInconclusive = false,
     );
   }
 
+  const label = task === 'ai_generation'
+    ? (isManipulated ? 'AI-GENERATED' : 'REAL PHOTOGRAPH')
+    : (isManipulated ? 'FAKE / MANIPULATED' : 'AUTHENTIC / REAL');
+
   if (isManipulated) {
     return (
       <span
@@ -27,7 +36,7 @@ export default function PredictionBadge({ isManipulated, isInconclusive = false,
         }`}
       >
         <AlertTriangle className={isLarge ? 'w-4 h-4 text-red-400' : 'w-3 h-3 text-red-400'} />
-        <span>Likely Manipulated</span>
+        <span>{label}</span>
       </span>
     );
   }
@@ -41,7 +50,7 @@ export default function PredictionBadge({ isManipulated, isInconclusive = false,
       }`}
     >
       <CheckCircle className={isLarge ? 'w-4 h-4 text-emerald-400' : 'w-3 h-3 text-emerald-400'} />
-      <span>Likely Real</span>
+      <span>{label}</span>
     </span>
   );
 }

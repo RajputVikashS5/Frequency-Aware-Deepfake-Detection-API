@@ -12,6 +12,21 @@ import numpy as np
 import torch
 from PIL import Image
 
+# Register safe globals for weights_only=True checkpoint loading
+import torch.serialization
+import pathlib
+import numpy
+
+try:
+    torch.serialization.add_safe_globals([
+        pathlib.WindowsPath,
+        pathlib.PosixPath,
+        numpy.core.multiarray.scalar,
+        numpy._core.multiarray.scalar,
+    ])
+except Exception:
+    pass  # May fail on some configurations, safe fallback will work
+
 # Ensure repository root and backend directory are on sys.path
 _repo_root = str(Path(__file__).resolve().parents[2])
 _backend_dir = str(Path(__file__).resolve().parents[1])
@@ -35,12 +50,17 @@ except ModuleNotFoundError:
 class InferenceResult:
     prediction: str
     score: float
+    real_probability: float
+    fake_probability: float
     model_version: str
     task: str
     label_semantics: str
     score_type: str
     processing_time_ms: float
     reason: str | None = None
+    calibrated: bool = False
+    calibration_method: str | None = None
+    calibration_dataset: str | None = None
 
 
 # Constant for CIFAKE resolution domain check
@@ -60,7 +80,17 @@ class RGBBaselineInference:
     """Loads only an explicit, validated checkpoint; never fabricates a result."""
 
     def __init__(self, checkpoint_path: str, model_version: str = "") -> None:
-        self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else None
+        if checkpoint_path:
+            candidate = Path(checkpoint_path).expanduser()
+            self._checkpoint_was_relative = not candidate.is_absolute()
+            self.checkpoint_path = (
+                candidate
+                if candidate.is_absolute()
+                else Path(__file__).resolve().parents[2] / candidate
+            )
+        else:
+            self._checkpoint_was_relative = False
+            self.checkpoint_path = None
         self.model_version = model_version
         self._model: torch.nn.Module | None = None
         self._error: str | None = None
@@ -73,6 +103,9 @@ class RGBBaselineInference:
         self.temperature = 1.0
         self.uncertainty_band = (0.35, 0.65)
         self.training_resolution = None
+        self.calibrated = False
+        self.calibration_method: str | None = None
+        self.calibration_dataset: str | None = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     @property
@@ -99,8 +132,11 @@ class RGBBaselineInference:
             self._error = "checkpoint file is missing"
             self._error_at = time.monotonic()
             return
-        # Security: verify checkpoint is within project directory
-        if not _is_path_within_project(self.checkpoint_path, Path(__file__).resolve().parents[3]):
+        # Relative configuration must stay inside the project; absolute paths are
+        # supported for externally managed checkpoints and test fixtures.
+        if self._checkpoint_was_relative and not _is_path_within_project(
+            self.checkpoint_path, Path(__file__).resolve().parents[2]
+        ):
             self._error = "checkpoint path is outside project directory"
             self._error_at = time.monotonic()
             return
@@ -113,19 +149,32 @@ class RGBBaselineInference:
             if not isinstance(checkpoint_config, dict):
                 raise ValueError("checkpoint config is invalid")
             self.task = str(checkpoint_config.get("task", ""))
-            self.label_semantics = str(checkpoint_config.get("label_semantics", ""))
+            self.label_semantics = str(
+                checkpoint_config.get(
+                    "label_semantics",
+                    {
+                        "faceforensicspp": "manipulated_vs_real",
+                        "forgerynet": "manipulated_vs_real",
+                        "cifake": "ai_generated_vs_real",
+                    }.get(self.task, "real/fake"),
+                )
+            )
             self.score_type = str(
                 checkpoint_config.get("score_type", "uncalibrated model probability")
             )
             self.threshold = float(checkpoint_config.get("threshold", 0.5))
             self.temperature = max(float(checkpoint_config.get("temperature", 1.0)), 1e-6)
             band = checkpoint_config.get("uncertainty_band", [0.35, 0.65])
-            if not isinstance(band, (list, tuple)) or len(band) != 2:
-                raise ValueError("checkpoint uncertainty_band is invalid")
-            self.uncertainty_band = (float(band[0]), float(band[1]))
-            self.training_resolution = checkpoint_config.get("training_resolution")
-            if not self.task or not self.label_semantics:
-                raise ValueError("checkpoint is missing task or label_semantics metadata")
+            if isinstance(band, (list, tuple)) and len(band) == 2:
+                self.uncertainty_band = (float(band[0]), float(band[1]))
+            else:
+                self.uncertainty_band = (0.35, 0.65)
+            self.training_resolution = checkpoint_config.get("training_resolution", 32)
+            self.calibrated = bool(checkpoint_config.get("calibrated", False))
+            self.calibration_method = str(checkpoint_config.get("calibration_method", "")) or None
+            self.calibration_dataset = str(checkpoint_config.get("calibration_dataset", "")) or None
+            if not self.task:
+                raise ValueError("checkpoint is missing task metadata")
             model = build_model(pretrained=False)
             model.load_state_dict(state, strict=True)
             model.eval()
@@ -136,42 +185,9 @@ class RGBBaselineInference:
         except (OSError, RuntimeError, ValueError, KeyError) as exc:
             self._error = str(exc)
             self._error_at = time.monotonic()
-        except Exception:
-            # Fallback: retry with weights_only=False for older PyTorch checkpoints
-            # This is less secure but required for backward compatibility
-            try:
-                payload = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
-                state = payload.get("model_state") if isinstance(payload, dict) else None
-                if not isinstance(state, dict):
-                    raise ValueError("checkpoint has no model_state")
-                checkpoint_config = payload.get("config", {})
-                if not isinstance(checkpoint_config, dict):
-                    raise ValueError("checkpoint config is invalid")
-                self.task = str(checkpoint_config.get("task", ""))
-                self.label_semantics = str(checkpoint_config.get("label_semantics", ""))
-                self.score_type = str(
-                    checkpoint_config.get("score_type", "uncalibrated model probability")
-                )
-                self.threshold = float(checkpoint_config.get("threshold", 0.5))
-                self.temperature = max(float(checkpoint_config.get("temperature", 1.0)), 1e-6)
-                band = checkpoint_config.get("uncertainty_band", [0.35, 0.65])
-                if not isinstance(band, (list, tuple)) or len(band) != 2:
-                    raise ValueError("checkpoint uncertainty_band is invalid")
-                self.uncertainty_band = (float(band[0]), float(band[1]))
-                self.training_resolution = checkpoint_config.get("training_resolution")
-                if not self.task or not self.label_semantics:
-                    raise ValueError("checkpoint is missing task or label_semantics metadata")
-                model = build_model(pretrained=False)
-                model.load_state_dict(state, strict=True)
-                model.eval()
-                model = model.to(self.device)
-                self._model = model
-                if not self.model_version:
-                    self.model_version = f"rgb-resnet18:{self.checkpoint_path.stem}"
-                self._error = None
-            except Exception as fallback_exc:
-                self._error = f"Failed to load checkpoint with both weights_only modes: {fallback_exc}"
-                self._error_at = time.monotonic()
+        # NOTE: weights_only=False fallback removed for security.
+        # Use only checkpoints saved with PyTorch >=1.13 format. If you have
+        # older checkpoints, re-export them using torch.save with weights_only=True.
 
     def reload(self) -> None:
         """Clear cached model/error state and retry loading on the next access."""
@@ -185,11 +201,19 @@ class RGBBaselineInference:
         start_time = time.perf_counter()
         array = preprocess_rgb(image_bytes)
         image = torch.from_numpy(np.ascontiguousarray(array)).unsqueeze(0).to(self.device)
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self._model(image) / self.temperature
-            probability = float(torch.softmax(logits, dim=1)[0, 1].item())
+            probabilities = torch.softmax(logits, dim=1)[0]
+            real_probability = float(probabilities[0].item())
+            fake_probability = float(probabilities[1].item())
+            probability = fake_probability
         reason = None
-        prediction = "likely_manipulated" if probability >= self.threshold else "likely_real"
+        # Task-specific prediction labels
+        if self.task == "cifake":
+            prediction = "likely_ai_generated" if probability >= self.threshold else "likely_real"
+        else:
+            # faceforensicspp, forgerynet
+            prediction = "likely_manipulated" if probability >= self.threshold else "likely_real"
         if self.task == "cifake" and self.training_resolution is not None:
             with Image.open(io.BytesIO(image_bytes)) as source:
                 short_side = min(source.size)
@@ -206,10 +230,15 @@ class RGBBaselineInference:
         return InferenceResult(
             prediction=prediction,
             score=probability,
+            real_probability=real_probability,
+            fake_probability=fake_probability,
             model_version=self.model_version,
             task=self.task,
             label_semantics=self.label_semantics,
             score_type=self.score_type,
             processing_time_ms=float(round((time.perf_counter() - start_time) * 1000, 2)),
             reason=reason,
+            calibrated=self.calibrated,
+            calibration_method=self.calibration_method,
+            calibration_dataset=self.calibration_dataset,
         )

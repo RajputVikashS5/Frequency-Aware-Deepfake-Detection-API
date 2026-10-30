@@ -8,6 +8,12 @@ import FrequencySpectrumViewer from '../components/results/FrequencySpectrumView
 import WaveletViewer from '../components/results/WaveletViewer';
 import SpectralChart from '../components/results/SpectralChart';
 import AnalysisSummary from '../components/results/AnalysisSummary';
+import ModelComparison from '../components/results/ModelComparison';
+import ForensicImageViewer from '../components/results/ForensicImageViewer';
+import RGBHistogram from '../components/results/RGBHistogram';
+import FFTSpectrum from '../components/results/FFTSpectrum';
+import ForensicEvidencePanels from '../components/results/ForensicEvidencePanels';
+import DWTDecomposition from '../components/results/DWTDecomposition';
 import FileMetadata from '../components/upload/FileMetadata';
 import { analysisService } from '../services/analysisService';
 import { reportService } from '../services/reportService';
@@ -159,7 +165,69 @@ export default function ResultsPage() {
             </div>
           </div>
         ) : (
-          /* Classification card is displayed only when a real model ran. */
+          {/* Dual Detection Results: Deepfake vs AI-Generated */}
+          {analysis.separateDetections && !isDiagnostic && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Card 1: Deepfake (Manipulated) Detection */}
+              <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">🎭</span>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
+                      Deepfake / Manipulation
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                    FaceForensics++
+                  </span>
+                </div>
+                <div className="p-3 rounded-lg bg-canvas border border-border/50">
+                  <div className="text-xs text-slate-400 font-mono">Verdict</div>
+                  <div className="text-lg font-bold font-mono text-slate-100">
+                    {analysis.separateDetections.deepfake_manipulation?.verdict || 'Analysis pending'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-mono mt-1">
+                    Detects face swaps, reenactments, and photographic manipulation
+                  </div>
+                </div>
+                {typeof analysis.confidencePct === 'number' && (
+                  <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-1">
+                    <span>Manipulation Confidence:</span>
+                    <span className="font-bold text-accent-cyan">{analysis.confidencePct.toFixed(1)}%</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Card 2: AI-Generated (Synthetic) Detection */}
+              <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">🤖</span>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
+                      AI-Generated / Synthetic
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                    CIFAKE
+                  </span>
+                </div>
+                <div className="p-3 rounded-lg bg-canvas border border-border/50">
+                  <div className="text-xs text-slate-400 font-mono">Verdict</div>
+                  <div className="text-lg font-bold font-mono text-slate-100">
+                    {analysis.separateDetections.ai_generation?.verdict || 'Inconclusive (32x32 model)'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-mono mt-1">
+                    Detects Stable Diffusion, DALL-E, Midjourney outputs
+                  </div>
+                </div>
+                <div className="text-[11px] text-amber-400/80 font-mono">
+                  ⚠️ Note: CIFAKE model is trained on 32x32 images. Results for higher resolutions are inconclusive.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Classification card is displayed only when a real model ran. */}
           <div
             className={`rounded-2xl border p-6 sm:p-8 shadow-xl transition-colors ${
               analysis.isInconclusive
@@ -186,7 +254,7 @@ export default function ResultsPage() {
 
               <div className="text-left sm:text-right">
                 <span className="text-[11px] text-slate-400 block font-mono">
-                  Model Score
+                  Fake Probability
                 </span>
                 <span className="text-xl sm:text-2xl font-extrabold font-mono text-accent-cyan">
                   {typeof analysis.confidencePct === 'number'
@@ -208,6 +276,46 @@ export default function ResultsPage() {
                 <span>Score Type: {analysis.scoreType || 'Model score'}</span>
               </div>
             </div>
+            {(typeof analysis.realProbabilityPct === 'number' ||
+              typeof analysis.fakeProbabilityPct === 'number') && (
+              <div className="pt-3 flex flex-wrap gap-4 text-xs text-slate-400 font-mono">
+                <span>Real: {analysis.realProbabilityPct?.toFixed(1) ?? 'N/A'}%</span>
+                <span>Fake: {analysis.fakeProbabilityPct?.toFixed(1) ?? 'N/A'}%</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {analysis.models?.length > 0 && (
+          <ModelComparison
+            models={analysis.models}
+            agreement={analysis.modelAgreement}
+            detections={analysis.detections}
+          />
+        )}
+
+        <ForensicImageViewer visualizations={analysis.visualizations} />
+
+        {analysis.extended && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <RGBHistogram
+                data={analysis.extended.histogram}
+                stats={analysis.extended.channel_stats}
+                brightness={analysis.extended.brightness}
+                contrast={analysis.extended.contrast}
+              />
+              <FFTSpectrum
+                imageUrl={analysis.extended.visualizations?.fft_magnitude || analysis.visualizations?.fftSpectrumUrl}
+                profile={analysis.spectralProfile}
+                energy={analysis.extended.frequency_energy}
+              />
+            </div>
+            <ForensicEvidencePanels extended={analysis.extended} />
+            <DWTDecomposition
+              levels={analysis.dwtLevels}
+              fallbackUrl={analysis.visualizations?.dwtSubbandsUrl}
+            />
           </div>
         )}
 
